@@ -1,70 +1,80 @@
-# build-native.ps1 —— Windows 上编译 libobs（obs-studio）+ obs-bridge 原生桥接，产物落到 bin/obs-bridge 与 bin/obs。
+# build-native.ps1 —— Windows 编译 libobs（obs-studio）+ obs-bridge 原生桥接
 #
-# 依赖：Visual Studio 2022（MSVC C++）、CMake、Ninja、Git、Node.js（无需 Qt，仅构建库与插件）。
-# 在 GitHub Actions 的 windows-latest runner 上运行。
+# 参考 obs-studio 30.2.3 官方构建：下载预编译 obs-deps（含 FFmpeg/x264/jansson 等），
+# 只编译嵌入所需的 libobs 库与插件（关闭 UI/浏览器/脚本，避免引入 Qt 与 CEF）。
 #
-# 用法：
-#   $env:OBS_VER="30.2.3"; powershell -ExecutionPolicy Bypass -File scripts/build-native.ps1
+# 依赖：Visual Studio 2022（MSVC）、CMake、Ninja、Git、Node.js（windows-latest 已具备）。
+# 用法：powershell -ExecutionPolicy Bypass -File scripts/build-native.ps1
 param(
-  [string]$OBS_VER = "30.2.3"
+  [string]$OBS_VER = "30.2.3",
+  [string]$DEPS_VER = "2024-05-08"
 )
 
 $ErrorActionPreference = "Stop"
 $SRC = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$OBS_ROOT = Join-Path $SRC "third_party\obs-studio"
-$OBS_BUILD = Join-Path $OBS_ROOT "build_x64"
+$TP = Join-Path $SRC "third_party"
+$OBS = Join-Path $TP "obs-studio"
+$DEPS = Join-Path $TP "obs-deps"           # obs-studio 默认在 ../obs-deps 找预编译依赖
+$BUILD = Join-Path $OBS "build_x64"
 $BIN = Join-Path $SRC "bin"
 
-Write-Host "==> 编译 libobs + 插件（obs-studio $OBS_VER, x64）"
-New-Item -ItemType Directory -Force -Path (Join-Path $SRC "third_party") | Out-Null
-if (-not (Test-Path (Join-Path $OBS_ROOT ".git"))) {
-  git clone --depth 1 --branch $OBS_VER https://github.com/obsproject/obs-studio.git $OBS_ROOT
-}
-Push-Location $OBS_ROOT
+New-Item -ItemType Directory -Force -Path $TP | Out-Null
 
-cmake -S . -B $OBS_BUILD -G Ninja `
-  -DCMAKE_BUILD_TYPE=Release `
-  -DDISABLE_PYTHON=ON `
+# 1) clone obs-studio（不拉 browser 等大 submodule）
+if (-not (Test-Path (Join-Path $OBS ".git"))) {
+  git clone --depth 1 --branch $OBS_VER https://github.com/obsproject/obs-studio.git $OBS
+}
+Push-Location $OBS
+git submodule update --init --depth 1 plugins/win-dshow/libdshowcapture 2>$null
+git submodule update --init --depth 1 plugins/obs-outputs/ftl-sdk 2>$null
+
+# 2) 下载预编译 obs-deps（含 FFmpeg/x264/libjansson 等），解压到 ../obs-deps
+if (-not (Test-Path (Join-Path $DEPS "bin"))) {
+  $zip = Join-Path $TP "windows-deps.zip"
+  $url = "https://github.com/obsproject/obs-deps/releases/download/$DEPS_VER/windows-deps-$DEPS_VER-x64.zip"
+  Write-Host "下载 obs-deps：$url"
+  Invoke-WebRequest -Uri $url -OutFile $zip
+  Expand-Archive -Path $zip -DestinationPath $TP -Force
+  Remove-Item $zip -Force
+}
+
+# 3) CMake 配置：关 UI / 浏览器 / 脚本，走 legacy 构建（libobs + 插件）
+cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
+  -DENABLE_UI=OFF `
   -DENABLE_BROWSER=OFF `
   -DENABLE_SCRIPTING=OFF `
-  -DENABLE_UI=OFF
+  -DENABLE_HEVC=OFF `
+  -DENABLE_AJA=OFF `
+  -DENABLE_WEBRTC=OFF `
+  -DENABLE_VLC=OFF `
+  -DBUILD_FOR_DISTRIBUTION=ON
 
-# 只构建嵌入所需的库与插件（Windows 采集/音频/编码插件）：
-#   libobs            —— 引擎核心
-#   obs-x264          —— x264 编码器
-#   obs-ffmpeg        —— ffmpeg_source + ffmpeg_aac
-#   obs-outputs       —— rtmp_output / ffmpeg_muxer
-#   obs-transitions   —— 转场
-#   obs-filters       —— 滤镜
-#   win-dshow         —— dshow_input 摄像头来源
-#   win-capture       —— 显示器捕获
-#   win-wasapi        —— 音频采集
-#   win-mf            —— Media Foundation 编码
-cmake --build $OBS_BUILD --parallel --target `
+# 4) 只编译需要的 target（libobs + 编码/输出/采集插件）
+cmake --build $BUILD --config Release --parallel --target `
   libobs obs-x264 obs-ffmpeg obs-outputs obs-transitions obs-filters `
   win-dshow win-capture win-wasapi win-mf
 
 Pop-Location
 
-Write-Host "==> 编译 obs-bridge 原生桥接（node-gyp）"
+# 5) 编译 obs-bridge 原生桥接（node-gyp；此时 npm install 已在 workflow 里完成）
 Push-Location (Join-Path $SRC "native\obs-bridge")
-$env:OBS_INCLUDE_DIR = Join-Path $OBS_ROOT "libobs"
-$env:OBS_LIB_DIR = Join-Path $OBS_BUILD "libobs"
-$env:OBS_MODULE_DIR = $OBS_BUILD
+$env:OBS_INCLUDE_DIR = Join-Path $OBS "libobs"
+$env:OBS_LIB_DIR = Join-Path $BUILD "libobs\Release"
+$env:OBS_MODULE_DIR = $BUILD
 npx node-gyp rebuild
 Pop-Location
 
-Write-Host "==> 落盘到 bin/"
+# 6) 落盘到 bin/
 New-Item -ItemType Directory -Force -Path (Join-Path $BIN "obs-bridge") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $BIN "obs\bin\64bit") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $BIN "obs\data") | Out-Null
 
 Copy-Item -Force (Join-Path $SRC "native\obs-bridge\build\Release\obs_bridge.node") (Join-Path $BIN "obs-bridge\obs_bridge.node")
-Get-ChildItem -Path $OBS_BUILD -Recurse -Filter *.dll | Where-Object { $_.Name -notlike "*test*" } | ForEach-Object {
+Get-ChildItem -Path $BUILD -Recurse -Filter *.dll | Where-Object { $_.FullName -notmatch "test" } | ForEach-Object {
   Copy-Item -Force $_.FullName (Join-Path $BIN "obs\bin\64bit\")
 }
-if (Test-Path (Join-Path $OBS_BUILD "rundir")) { Copy-Item -Recurse -Force (Join-Path $OBS_BUILD "rundir\*") (Join-Path $BIN "obs\data\") }
-if (Test-Path (Join-Path $OBS_BUILD "data")) { Copy-Item -Recurse -Force (Join-Path $OBS_BUILD "data\*") (Join-Path $BIN "obs\data\") }
+# 预编译 deps 的运行时 DLL（FFmpeg 等）也要带上
+if (Test-Path (Join-Path $DEPS "bin")) { Copy-Item -Force (Join-Path $DEPS "bin\*.dll") (Join-Path $BIN "obs\bin\64bit\") }
+if (Test-Path (Join-Path $BUILD "rundir")) { Copy-Item -Recurse -Force (Join-Path $BUILD "rundir\*") (Join-Path $BIN "obs\data\") }
 
-Write-Host "==> 完成。bin/ 内容："
-Get-ChildItem -Recurse $BIN | Select-Object FullName
+Write-Host "==> 完成"

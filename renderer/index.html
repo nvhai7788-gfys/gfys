@@ -599,7 +599,7 @@
       <div class="side-version" id="sideVersion">
         <span class="sv-dot"></span>
         <span class="sv-label">港丰影视</span>
-        <span class="sv-text" id="sideVerText">v1.1.38</span>
+        <span class="sv-text" id="sideVerText">v1.1.39</span>
       </div>
       <div style="display:flex;gap:6px;margin-bottom:10px">
         <button class="btn btn-sm btn-primary" id="provTencent" style="flex:1;justify-content:center">腾讯云</button>
@@ -11751,7 +11751,7 @@ document.addEventListener('DOMContentLoaded', function () {
 // 版本号显示（登录页徽标 / 设置页），版本来自 package.json（electron app.getVersion）
 (function initVerBadge() {
   try {
-    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.38');
+    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.39');
     var lv = document.getElementById('loginVer'); if (lv) lv.textContent = ver;
     var sv = document.getElementById('stVer'); if (sv) sv.textContent = ver;
     var sv2 = document.getElementById('sideVerText'); if (sv2) sv2.textContent = ver;

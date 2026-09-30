@@ -63,6 +63,10 @@ jobs:
         if: matrix.target == 'win'
         run: choco install ninja -y
 
+      # ---------- 安装依赖（提前：编译 addon 需要 node-gyp） ----------
+      - name: 安装依赖
+        run: npm ci || npm install
+
       # ---------- 编译 libobs + obs-bridge 原生桥接 ----------
       - name: 编译 libobs + obs-bridge（macOS）
         if: matrix.target == 'mac'
@@ -88,10 +92,6 @@ jobs:
       - name: 获取 ffmpeg（Windows）
         if: matrix.target == 'win'
         run: bash scripts/fetch-ffmpeg.sh
-
-      # ---------- 安装 Electron 依赖 ----------
-      - name: 安装依赖
-        run: npm ci || npm install
 
       # ---------- 打包安装包（含 libobs 原生桥接） ----------
       - name: 打包安装包
