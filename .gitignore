@@ -1,0 +1,27 @@
+# ---- 依赖 ----
+node_modules/
+
+# ---- 构建产物 ----
+dist/
+out/
+release/
+
+# ---- 内置二进制（scripts/fetch-ffmpeg.sh 在 CI/本机下载）----
+bin/
+
+# ---- 第三方源码（scripts/build-native.* 在 CI 里 clone obs-studio）----
+third_party/
+
+# ---- libobs 原生桥接构建产物 ----
+native/obs-bridge/build/
+native/obs-bridge/node_modules/
+native/obs-bridge/*.node
+
+# ---- 日志 / 系统 / 编辑器 ----
+*.log
+*.blockmap
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

@@ -1,0 +1,122 @@
+name: build-libobs-installers
+
+# 港丰影视直播工作台 —— libobs 真引擎 + 安装包 CI
+#
+# 产物（按平台/架构矩阵）：
+#   macOS  arm64 → 港丰影视直播工作台-<ver>-arm64.dmg
+#   macOS  x64   → 港丰影视直播工作台-<ver>.dmg
+#   Windows x64  → 港丰影视直播工作台 Setup <ver>.exe + <ver>-win.zip
+#
+# 说明：
+#   1) 本工作流在「联网 CI + Xcode/MSVC」环境把 libobs（obs-studio）与 obs-bridge 原生桥接
+#      从源码编译并打包进安装包——这是本地沙箱（无 Xcode / 无 MSVC）做不到的「真引擎」环节。
+#   2) libobs 用 obs-studio 30.2.3（按需调整 OBS_VER）；UI 关闭（ENABLE_UI=OFF），不引入 Qt。
+#   3) 安装包未签名（identity:null），交付前如需可自行加签名/公证。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  OBS_VER: "30.2.3"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+            target: mac
+            eb_flags: "--mac dmg --arm64"
+          - os: macos-13
+            arch: x64
+            target: mac
+            eb_flags: "--mac dmg --x64"
+          - os: windows-latest
+            arch: x64
+            target: win
+            eb_flags: "--win nsis zip --x64"
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # ---------- 编译工具链 ----------
+      - name: 安装 CMake / Ninja（macOS）
+        if: matrix.target == 'mac'
+        run: brew install cmake ninja
+
+      - name: 安装 Ninja（Windows，CMake 已预装）
+        if: matrix.target == 'win'
+        run: choco install ninja -y
+
+      # ---------- 编译 libobs + obs-bridge 原生桥接 ----------
+      - name: 编译 libobs + obs-bridge（macOS）
+        if: matrix.target == 'mac'
+        run: bash scripts/build-native.sh
+        env:
+          ARCH: ${{ matrix.arch }}
+          OBS_VER: ${{ env.OBS_VER }}
+
+      - name: 编译 libobs + obs-bridge（Windows）
+        if: matrix.target == 'win'
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-native.ps1
+        env:
+          OBS_VER: ${{ env.OBS_VER }}
+
+      # ---------- 内置 ffmpeg（推流/录制依赖） ----------
+      - name: 获取 ffmpeg（macOS）
+        if: matrix.target == 'mac'
+        run: |
+          brew install ffmpeg
+          bash scripts/fetch-ffmpeg.sh
+
+      - name: 获取 ffmpeg（Windows）
+        if: matrix.target == 'win'
+        run: bash scripts/fetch-ffmpeg.sh
+
+      # ---------- 安装 Electron 依赖 ----------
+      - name: 安装依赖
+        run: npm ci || npm install
+
+      # ---------- 打包安装包（含 libobs 原生桥接） ----------
+      - name: 打包安装包
+        run: npx electron-builder --config build/electron-builder.ci.yml ${{ matrix.eb_flags }}
+        env:
+          # 不打签名：identity 已在配置中置 null
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---------- 上传产物 ----------
+      - name: 上传产物（macOS）
+        if: matrix.target == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+          retention-days: 30
+
+      - name: 上传产物（Windows）
+        if: matrix.target == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-${{ matrix.arch }}
+          path: |
+            dist/*.exe
+            dist/*.zip
+          retention-days: 30

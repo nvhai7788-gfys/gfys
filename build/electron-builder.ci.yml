@@ -1,0 +1,60 @@
+# electron-builder.ci.yml —— CI 专用构建配置（libobs 真引擎版）
+#
+# 与 package.json 的 build 配置区别：本配置额外把「libobs 原生桥接 + libobs 模块」打包进
+# resources/（obs-bridge/ 与 obs/）。这些产物由 CI（scripts/build-native.*）先行编译并落到
+# bin/obs-bridge/、bin/obs/，本地未编译时不存在，故本地冒烟构建仍走 package.json 的 ffmpeg 基线配置。
+#
+# 用法：electron-builder --config build/electron-builder.ci.yml
+appId: com.workbuddy.tencent-live-workbench
+productName: 港丰影视直播工作台
+directories:
+  output: dist
+files:
+  - main.js
+  - preload.js
+  - ffmpeg-args.js
+  - libobs-engine.js
+  - renderer/**/*
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  identity: null
+  category: public.app-category.video
+  extraResources:
+    - from: bin/ffmpeg-darwin-arm64
+      to: bin/ffmpeg-darwin-arm64
+    - from: bin/ffmpeg-darwin-x64
+      to: bin/ffmpeg-darwin-x64
+    # libobs 真引擎：原生桥接（.node）+ libobs 运行时模块
+    - from: bin/obs-bridge/
+      to: obs-bridge/
+    - from: bin/obs/
+      to: obs/
+  extendInfo:
+    NSCameraUsageDescription: 本地推流与录制需要访问摄像头 / 视频采集卡画面
+    NSMicrophoneUsageDescription: 本地推流与录制需要访问麦克风采集声音
+    NSAudioInputUsageDescription: 本地推流与录制需要访问音频输入设备
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
+  extraResources:
+    - from: bin/ffmpeg-win32-x64.exe
+      to: bin/ffmpeg-win32-x64.exe
+    - from: bin/obs-bridge/
+      to: obs-bridge/
+    - from: bin/obs/
+      to: obs/
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: 港丰影视直播工作台
+  include: build/installer.nsh

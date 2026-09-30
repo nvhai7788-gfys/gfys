@@ -1,0 +1,12 @@
+{
+  "name": "obs-bridge",
+  "version": "1.1.38",
+  "description": "港丰影视直播工作台 —— libobs 真引擎原生桥接（N-API），把 OBS 场景/来源/变换镜像到 libobs，并提供设备枚举与推流输出",
+  "main": "build/Release/obs_bridge.node",
+  "private": true,
+  "license": "MIT",
+  "gypfile": true,
+  "engines": {
+    "node": ">=18"
+  }
+}

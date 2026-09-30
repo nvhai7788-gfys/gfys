@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# fetch-ffmpeg.sh —— 下载内置 ffmpeg 静态二进制到 src/bin/，供 electron-builder extraResources 打包。
+# 平台感知：Windows 下载 gyan 静态构建（ffmpeg.exe）；macOS 从 Homebrew 复制本机 ffmpeg（arch 匹配 runner）。
+#
+# 用法（在项目根 src/ 下执行）：
+#   bash scripts/fetch-ffmpeg.sh
+set -euo pipefail
+
+SRC="$(cd "$(dirname "$0")/.." && pwd)"
+BIN="$SRC/bin"
+mkdir -p "$BIN"
+
+UNAME="$(uname -s)"
+case "$UNAME" in
+  Darwin)
+    # macOS：优先 Homebrew（本机 ffmpeg 为与 runner 匹配的 arch），找不到再尝试 evermeet.cx（x64）
+    if command -v brew >/dev/null 2>&1 && [ -x "$(brew --prefix ffmpeg 2>/dev/null)/bin/ffmpeg" ]; then
+      FF="$(brew --prefix ffmpeg)/bin/ffmpeg"
+    elif [ -x /opt/homebrew/bin/ffmpeg ]; then
+      FF="/opt/homebrew/bin/ffmpeg"
+    elif [ -x /usr/local/bin/ffmpeg ]; then
+      FF="/usr/local/bin/ffmpeg"
+    else
+      echo "未找到 ffmpeg，尝试从 evermeet.cx 下载（x64）…"
+      curl -fsSL -o /tmp/ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" || { echo "下载失败"; exit 1; }
+      unzip -o /tmp/ffmpeg.zip -d /tmp/ffmpeg_ext
+      FF="/tmp/ffmpeg_ext/ffmpeg"
+    fi
+    ARCH="$(uname -m)"   # arm64 / x86_64
+    [ "$ARCH" = "x86_64" ] && ARCH="x64"
+    cp -f "$FF" "$BIN/ffmpeg-darwin-$ARCH"
+    chmod +x "$BIN/ffmpeg-darwin-$ARCH"
+    echo "已写入 bin/ffmpeg-darwin-$ARCH"
+    ;;
+  *)
+    # Windows / Linux 归为 win：下载 gyan.dev release essentials（含 ffmpeg.exe）
+    ZIP="$BIN/ffmpeg-win.zip"
+    echo "下载 ffmpeg（gyan.dev release essentials）…"
+    curl -fsSL -o "$ZIP" "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" || { echo "下载失败"; exit 1; }
+    EXTRACT="$BIN/_tmp_ff"
+    rm -rf "$EXTRACT"; mkdir -p "$EXTRACT"
+    unzip -o "$ZIP" -d "$EXTRACT" >/dev/null
+    FOUND="$(find "$EXTRACT" -type f -name 'ffmpeg.exe' | head -1)"
+    if [ -z "$FOUND" ]; then echo "解压后未找到 ffmpeg.exe"; exit 1; fi
+    cp -f "$FOUND" "$BIN/ffmpeg-win32-x64.exe"
+    rm -rf "$EXTRACT" "$ZIP"
+    echo "已写入 bin/ffmpeg-win32-x64.exe"
+    ;;
+esac
+
+echo "完成。当前 bin/ 内容："
+ls -la "$BIN"

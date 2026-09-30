@@ -1,0 +1,41 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('tcapi', {
+  // 应用版本号（登录页 / 设置页显示，用于确认安装包新旧）
+  // 沙盒 preload 不能用 electron app 模块，走 sendSync 向主进程取
+  appVersion: ipcRenderer.sendSync('app:version-sync'),
+  call: (args) => ipcRenderer.invoke('tc:call', args),
+  acall: (args) => ipcRenderer.invoke('ac:call', args),
+  openPreview: (url, title, meta) => ipcRenderer.invoke('app:openPreview', url, title, meta),
+  openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
+  md5Sync: (s) => ipcRenderer.sendSync('util:md5-sync', s),
+  sha256Sync: (s) => ipcRenderer.sendSync('util:sha256-sync', s),
+  saveCsv: (name, content) => ipcRenderer.invoke('app:saveCsv', name, content),
+  webhook: (args) => ipcRenderer.invoke('app:webhook', args),
+  probeNode: (url) => ipcRenderer.invoke('app:probeNode', url),
+  notify: (title, body) => ipcRenderer.invoke('app:notify', title, body),
+  openPrivacy: (pane) => ipcRenderer.invoke('app:openPrivacy', pane),
+  ff: (args) => ipcRenderer.invoke('ff:run', args),
+  ffStop: (id) => ipcRenderer.invoke('ff:stop', id),
+  ffList: () => ipcRenderer.invoke('ff:list'),
+  ffDevices: () => ipcRenderer.invoke('ff:devices'),
+  ffPickFile: () => ipcRenderer.invoke('ff:pickFile'),
+  ffPickDir: () => ipcRenderer.invoke('ff:pickDir'),
+  ffRelay: (url) => ipcRenderer.invoke('ff:relay', url),
+  ffRelayStop: () => ipcRenderer.invoke('ff:relayStop'),
+  ffListEncoders: () => ipcRenderer.invoke('ff:listEncoders'),
+  ffListPlayers: () => ipcRenderer.invoke('ff:listPlayers'),
+  ffOpenInPlayer: (url, playerPath) => ipcRenderer.invoke('ff:openInPlayer', url, playerPath),
+  ffProbe: (url) => ipcRenderer.invoke('ff:probe', url),
+  ffAudioLevel: (arg) => ipcRenderer.invoke('ff:audioLevel', arg),
+  ffSelfCheck: (args) => ipcRenderer.invoke('ff:selfcheck', args),
+  // v1.1.38：libobs 真引擎（可选，addon 不可用时返回 available:false，前端自动回退 ffmpeg）
+  obsStatus: () => ipcRenderer.invoke('obs:status'),
+  obsDevices: (category) => ipcRenderer.invoke('obs:devices', category),
+  obsPushScene: (scene, config) => ipcRenderer.invoke('obs:pushScene', scene, config),
+  obsStartStream: (url, key, o) => ipcRenderer.invoke('obs:startStream', url, key, o),
+  obsStopStream: () => ipcRenderer.invoke('obs:stopStream'),
+  onFfLog: (cb) => ipcRenderer.on('ff:log', (_e, data) => cb(data)),
+  onFfProgress: (cb) => ipcRenderer.on('ff:progress', (_e, data) => cb(data)),
+  onFfRestarted: (cb) => ipcRenderer.on('ff:restarted', (_e, data) => cb(data))
+});

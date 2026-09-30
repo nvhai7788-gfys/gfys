@@ -1,0 +1,90 @@
+{
+  "name": "tencent-live-workbench",
+  "version": "1.1.38",
+  "description": "港丰影视直播工作台 - 腾讯云/阿里云直播管理、实时监控在线流、快捷拉流转推",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac dmg",
+    "dist:win": "electron-builder --win nsis",
+    "dist": "electron-builder --mac dmg --win nsis",
+    "dist:ci": "electron-builder --config build/electron-builder.ci.yml"
+  },
+  "author": "WorkBuddy",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.workbuddy.tencent-live-workbench",
+    "productName": "港丰影视直播工作台",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "ffmpeg-args.js",
+      "libobs-engine.js",
+      "renderer/**/*"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "identity": null,
+      "category": "public.app-category.video",
+      "extraResources": [
+        {
+          "from": "bin/ffmpeg-darwin-arm64",
+          "to": "bin/ffmpeg-darwin-arm64"
+        },
+        {
+          "from": "bin/ffmpeg-darwin-x64",
+          "to": "bin/ffmpeg-darwin-x64"
+        }
+      ],
+      "extendInfo": {
+        "NSCameraUsageDescription": "本地推流与录制需要访问摄像头 / 视频采集卡画面",
+        "NSMicrophoneUsageDescription": "本地推流与录制需要访问麦克风采集声音",
+        "NSAudioInputUsageDescription": "本地推流与录制需要访问音频输入设备"
+      }
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "bin/ffmpeg-win32-x64.exe",
+          "to": "bin/ffmpeg-win32-x64.exe"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "港丰影视直播工作台",
+      "include": "build/installer.nsh"
+    }
+  }
+}

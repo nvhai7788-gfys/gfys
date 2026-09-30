@@ -1,0 +1,780 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>播放预览</title>
+<style>body{margin:0;background:#111;color:#eee;font-family:-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;height:100vh}
+.bar{display:flex;gap:8px;align-items:center;width:100%;padding:10px 14px;box-sizing:border-box;border-bottom:1px solid #22293a;flex-wrap:wrap}
+.bar .t{flex:1;font-size:13px;color:#cdd6e4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:120px}
+.bar .grp{display:flex;gap:4px;align-items:center}
+.bar .grp .lb{font-size:11px;color:#7a8699;margin-right:2px}
+.stage{flex:1;min-height:0;width:96%;background:#000;margin-bottom:8px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+video{max-width:100%;max-height:100%;background:#000;transition:transform .2s ease}
+button.rot{color:#ffd479}
+.url{font-size:12px;color:#9ab;max-width:94%;word-break:break-all;text-align:center;margin-bottom:4px}
+.tip{font-size:12px;color:#e66;margin-bottom:6px;max-width:94%;text-align:center;line-height:1.6}
+.diag{width:96%;max-height:110px;overflow-y:auto;background:#0b0f1a;border:1px solid #232b40;border-radius:6px;font-size:11px;line-height:1.6;color:#8fa3c8;padding:6px 10px;margin-bottom:10px;white-space:pre-wrap;word-break:break-all}
+button{padding:6px 12px;border:1px solid #3a4356;border-radius:6px;background:#1d2330;color:#eee;cursor:pointer;font-size:12px}
+button:hover{border-color:#6a7488}
+button.on{border-color:#3b82f6;color:#7db4ff}
+button.primary{border-color:#3b82f6;background:#1c2f55;color:#9ec3ff}
+button:disabled{opacity:.5;cursor:not-allowed}
+input{padding:6px 8px;border:1px solid #3a4356;border-radius:6px;background:#0b0f1a;color:#eee;font-size:12px;width:220px}
+select{padding:5px 8px;border:1px solid #3a4356;border-radius:6px;background:#0b0f1a;color:#eee;font-size:12px;max-width:220px}
+.dminfo{font-size:12px;color:#9fb3d9;max-width:94%;text-align:center;margin-bottom:2px;line-height:1.7}
+.dminfo b{color:#ffd479}
+.dminfo .ok{color:#7ee2a8}
+/* 播放参数条：完整显示分辨率 / 帧率 / 协议（不再截断） */
+.pstats{display:flex;gap:18px;flex-wrap:wrap;width:96%;font-size:12px;color:#9fb3d9;padding:7px 0 3px;box-sizing:border-box}
+.pstats .it{display:flex;align-items:baseline;gap:5px;white-space:nowrap}
+.pstats .it .k{color:#7a8699}
+.pstats .it b{color:#e7eefc;font-weight:600;font-variant-numeric:tabular-nums;font-size:13px}
+.pstats .it.res b{color:#7db4ff}
+/* 音频可视化：频谱条 + 左右声道电平（与主工作台同一套画法，此处自带精简实现） */
+.aviz{position:relative;width:96%;height:42px;margin-bottom:8px;border-radius:6px;overflow:hidden;background:#0b0f1a;border:1px solid #232b40}
+.aviz canvas{display:block;width:100%;height:100%}
+.aviz .aviz-tag{position:absolute;left:6px;top:4px;font-size:10px;color:#8fa3c8;background:rgba(0,0,0,.45);padding:1px 5px;border-radius:4px;pointer-events:none}
+.aviz .aviz-note{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:#8fa3c8;text-align:center;padding:0 10px;pointer-events:none}
+.aviz.off{display:none}
+</style></head><body>
+<div class="bar"><div class="t" id="ttl"></div>
+<div class="grp"><span class="lb">协议</span>
+<button id="pFlv" onclick="playProto('flv',this)">FLV</button>
+<button id="pHls" onclick="playProto('hls',this)">HLS</button>
+<button id="pRtmp" onclick="playRtmpDirect(this)" title="RTMP 流：通过 ffmpeg 本地中继转 FLV 播放（需推流中或流已开播）">RTMP</button>
+<button id="vlcBtn" onclick="openInVlc(this)" title="用本机原生播放器（VLC 等）打开 —— RTMP 最可靠的播放方式">▶ VLC 播放</button></div>
+<div class="grp"><span class="lb">倍速</span>
+<button onclick="setRate(this,0.5)">0.5x</button>
+<button onclick="setRate(this,1)" class="act">1x</button>
+<button onclick="setRate(this,1.5)">1.5x</button>
+<button onclick="setRate(this,2)">2x</button></div>
+<button onclick="location.reload()">重新加载</button>
+<button id="soundBtn" onclick="toggleSound(this)">开启声音</button>
+<button id="vizBtn" class="on" onclick="toggleViz(this)" title="音频可视化：实时频谱与左右声道电平">📊 音频</button>
+<button onclick="doSnap(this)">📸 截图</button>
+<button onclick="doRec(this)">⏺ 录屏</button>
+<button onclick="navigator.clipboard.writeText(playUrl);this.textContent='已复制'">复制地址</button>
+<div class="grp"><span class="lb">方向</span>
+<button id="oLand" class="on" onclick="setOrient('land',this)">横屏</button>
+<button id="oPort" onclick="setOrient('port',this)">竖屏</button>
+<button id="oRot" class="rot" onclick="rotStep(this)" title="顺时针旋转 90°">⟳ 旋转</button></div></div>
+<div class="pstats" id="pstats">
+  <span class="it res"><span class="k">分辨率</span><b id="stRes">--</b></span>
+  <span class="it"><span class="k">帧率</span><b id="stFps">--</b></span>
+  <span class="it"><span class="k">协议</span><b id="stProto">--</b></span>
+  <span class="it"><span class="k">尺寸比</span><b id="stRatio">--</b></span>
+  <span class="it"><span class="k">方向</span><b id="stRotate">横屏 0°</b></span>
+</div>
+<div class="dminfo" id="dmInfo" style="display:none"></div>
+<div class="stage" id="stage"><video id="v" controls autoplay muted playsinline></video></div>
+<div class="aviz" id="aviz"><canvas></canvas><span class="aviz-tag">音频</span><span class="aviz-note"></span></div>
+<div class="url" id="urlbox"></div>
+<div class="tip" id="tip">正在初始化…</div>
+<div class="bar" style="border:none;padding:0 14px 6px"><span class="lb" style="font-size:11px;color:#7a8699">手动测试：</span>
+<input id="manUrl" placeholder="粘贴完整播放地址（.flv / .m3u8）直接播放">
+<button onclick="playManual()">▶ 播放</button></div>
+<div class="diag" id="diag">诊断日志：</div>
+<!-- 本地打包播放器（零外链，离线可用）：
+     mpegts.js = flv.js 官方后继（同作者 xqq），FLV/TS 播放、低延迟追帧、断流自动重连更强 -->
+<script src="vendor/mpegts.min.js"></script>
+<script src="vendor/hls.min.js"></script>
+<script>
+// 预览窗全局安全网：拦截未捕获异常，避免流断开 / 解码异常时整窗白屏（仍可点「重新加载」恢复）
+(function () {
+  function showFatal(msg) {
+    try {
+      var m = document.getElementById('fatalMask');
+      if (!m) {
+        var s = document.createElement('style');
+        s.textContent = '#fatalMask{position:fixed;inset:0;z-index:99999;background:rgba(6,10,20,.93);color:#e7eefc;font-family:-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:24px;box-sizing:border-box}#fatalMask .box{max-width:640px;width:100%}#fatalMask h3{color:#f87171;margin:0 0 10px;font-size:15px}#fatalMask pre{background:#0b0f1a;border:1px solid #232b40;border-radius:8px;padding:12px;max-height:180px;overflow:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:#ffb4b4}#fatalMask button{margin-top:14px;padding:8px 16px;border-radius:8px;border:1px solid #35507f;background:#1d2330;color:#eee;cursor:pointer;font-size:13px}';
+        document.head.appendChild(s);
+        m = document.createElement('div'); m.id = 'fatalMask';
+        m.innerHTML = '<div class="box"><h3>⚠ 预览窗运行时出错（已拦截）</h3><pre id="fatalMsg"></pre><button onclick="location.reload()">重新加载预览</button></div>';
+        document.body.appendChild(m);
+      }
+      var pre = document.getElementById('fatalMsg');
+      if (pre) pre.textContent = msg + '\n\n' + pre.textContent;
+    } catch (e) {}
+  }
+  window.__showFatal = showFatal;
+  window.addEventListener('error', function (e) { if (!e.message) return; showFatal('JS 运行错误：' + (e.message + (e.error && e.error.stack ? '\n' + e.error.stack : ''))); });
+  window.addEventListener('unhandledrejection', function (e) { var r = e.reason; showFatal('未处理 Promise 异常：' + ((r && (r.message || r.error)) || String(r))); });
+})();
+var qs = new URLSearchParams(location.search);
+var cands = [];
+try { cands = JSON.parse(qs.get('urls') || '[]') || []; } catch (e) { cands = []; }
+var firstUrl = qs.get('url') || '';
+if (!cands.length) cands = [firstUrl];
+cands = cands.filter(function (u) { return u && /^(https?|rtmp):\/\//i.test(u); });
+if (!cands.length) cands = [firstUrl];
+var candIdx = 0, playUrl = cands[0];
+var ttl = qs.get('title') || playUrl;
+document.getElementById('ttl').textContent = ttl;
+document.getElementById('urlbox').textContent = playUrl;
+var v = document.getElementById('v'), tip = document.getElementById('tip'), diagBox = document.getElementById('diag');
+// ============ 域名识别信息（自动读取替换播放域名 + 自动附加播放鉴权 Key） ============
+// 主窗口传入 meta：{ push: 推流域名, plays: 候选播放域名列表, auth: { 播放域名: Key 来源 } }
+var meta = {};
+try { meta = JSON.parse(qs.get('meta') || '{}') || {}; } catch (e) { meta = {}; }
+if (!meta.push) meta.push = '';
+if (!Array.isArray(meta.plays)) meta.plays = [];
+// 最终防线：候选里若仍混入推流域名（推流域名不能用于播放），一律剔除
+if (meta.push) {
+  var beforeN = cands.length;
+  cands = cands.filter(function (u) { return hostOf(u).toLowerCase() !== meta.push; });
+  if (cands.length < beforeN) dlog('⚠ 已剔除推流域名候选 ' + meta.push + ' × ' + (beforeN - cands.length) + '（推流域名不能用于播放）');
+}
+if (!cands.length) { cands = [firstUrl]; dlog('⚠ 候选为空：未读取到播放域名'); }
+candIdx = 0; playUrl = cands[0];
+document.getElementById('urlbox').textContent = playUrl;
+// 鉴权 Key 附加情况写入诊断日志
+(function logAuth() {
+  var h = hostOf(playUrl).toLowerCase();
+  if (!meta.auth || !(h in meta.auth)) return;
+  var s = meta.auth[h];
+  dlog(s ? '鉴权 Key：已自动附加（' + s + '）；失败会自动尝试推流 Key / 备用 Key / 裸地址候选'
+        : '鉴权 Key：未附加（裸地址兜底，该播放域名未读到任何鉴权 Key）');
+})();
+// ============ 播放核心 v4.3（mpegts.js + 先播后探） ============
+// 策略对齐官方 Web 播放（TCPlayer 同源思路）：拿到地址**立即直接播放**（探测环节对真实 CDN
+// 存在不确定性，R29 的直接播放路径是实测可打开的）；播放失败时才逐级降级：
+//   ① 探测当前地址拿 HTTP 状态（403=鉴权错 / 404=无流 / 0=网络不通，诊断日志可见）
+//   ② 4xx 或网络不通 → 切换下一候选地址（多域名 × https/http，鉴权 Key 与地址生成器同源）
+//   ③ 流可达但解码失败 → 换协议（FLV↔HLS）→ 仍失败 → ffmpeg 原生中继兜底
+var player = null, curProto = '', otherProto = '', otherUrl = '';
+var mode = 'direct';        // direct | relay
+var directFailed = 0;       // 同一候选上的直连失败计数
+
+function dlog(msg) {
+  if (!diagBox) return;
+  var t = new Date().toTimeString().slice(0, 8);
+  diagBox.textContent += '\n[' + t + '] ' + msg;
+  diagBox.scrollTop = diagBox.scrollHeight;
+}
+dlog('播放地址：' + playUrl + (cands.length > 1 ? '\n候选地址共 ' + cands.length + ' 个（失败自动切换）' : ''));
+
+// ---------- 域名识别展示与播放域名切换 ----------
+function esc2(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function candHosts() {
+  var hs = [];
+  cands.forEach(function (u) { var h = hostOf(u).toLowerCase(); if (h && hs.indexOf(h) < 0) hs.push(h); });
+  return hs;
+}
+(function renderDmInfo() {
+  var hosts = candHosts();
+  var box = document.getElementById('dmInfo');
+  if (!meta.push && !hosts.length) return;
+  box.style.display = '';
+  // 鉴权 Key 附加状态（主窗口自动加入：云端读取 / 域名配置 / 推流 Key 兜底）
+  function authTxt(h) {
+    if (!meta.auth || !(h in meta.auth)) return '';
+    var s = meta.auth[h];
+    return s ? '（✓ 已自动附加鉴权 Key · ' + esc2(s) + '）' : '（未附加 Key · 裸地址）';
+  }
+  box.innerHTML = (meta.push ? '推流域名 <b>' + esc2(meta.push) + '</b>（不能播放，已排除） → ' : '') +
+    (hosts.length ? '播放域名 ' + hosts.map(function (h) {
+      return '<span class="ok"><b>' + esc2(h) + '</b></span>' + authTxt(h);
+    }).join(' / ') + '（账号自动读取）' : '<b>未读取到播放域名，可在下方手动测试粘贴地址</b>');
+})();
+(function buildHostSel() {
+  var hosts = candHosts();
+  if (hosts.length < 2) return;   // 单域名无需切换
+  var sel = document.createElement('select');
+  sel.id = 'hostSel';
+  sel.title = '切换播放域名';
+  hosts.forEach(function (h) {
+    var o = document.createElement('option');
+    o.value = h; o.textContent = h;
+    sel.appendChild(o);
+  });
+  sel.value = hostOf(playUrl).toLowerCase();
+  sel.onchange = function () {
+    var h = sel.value;
+    for (var i = 0; i < cands.length; i++) {
+      if (hostOf(cands[i]).toLowerCase() === h) { dlog('手动切换播放域名 → ' + h); playCandidate(i); return; }
+    }
+  };
+  var grp = document.createElement('div');
+  grp.className = 'grp';
+  grp.innerHTML = '<span class="lb">播放域名</span>';
+  grp.appendChild(sel);
+  document.querySelector('.bar').appendChild(grp);
+})();
+
+function destroyPlayer() {
+  clearNoDataWatch();
+  if (player) { try { player.destroy ? player.destroy() : player.detachMediaElement(); } catch (e) {} player = null; }
+  v.removeAttribute('src'); v.load();
+}
+// ---------- 空响应看门狗 ----------
+// CDN 对「鉴权通过但流未路由到该播放域名」返回 200 + 0 字节，播放器不触发任何 error、
+// 永远等待 → 卡死在错误域名上。8 秒收不到媒体数据即判定失败，自动切下一候选
+var noDataTimer = null;
+function clearNoDataWatch() { if (noDataTimer) { clearInterval(noDataTimer); noDataTimer = null; } }
+function startNoDataWatch(isRelay) {
+  clearNoDataWatch();
+  var t0 = Date.now();
+  noDataTimer = setInterval(function () {
+    if (v.buffered.length > 0 || v.currentTime > 0) { clearNoDataWatch(); return; }
+    if (Date.now() - t0 > 8000) {
+      clearNoDataWatch();
+      dlog('⚠ 8 秒未收到流数据（HTTP 200 空响应：流未路由到播放域名 ' + hostOf(playUrl) + '，鉴权本身是通过的）');
+      if (isRelay) {
+        // r69：中继源可能是 RTMP（不存在「播放域名」概念），文案改为通用 + 给出原生播放器出路
+        showErr('中继已连通但 8 秒未收到流数据（' + playUrl.slice(0, 60) + '）：该地址上没有正在推的流，或编码不被内置播放器支持。' +
+          '请确认流已开播；可点顶部「' + (extPlayers.length ? extPlayers[0].name : 'VLC') + ' 播放」用原生播放器验证');
+        return;
+      }
+      if (!nextCandidate('空响应无数据')) {
+        showErr('全部候选均无流数据（200 空响应）：流可能未路由到任何候选播放域名。可用「播放域名」下拉手动切换、点「ffmpeg 中继播放」重试，或稍后点「重新加载」');
+        ensureRelayBtn();
+      }
+    }
+  }, 1000);
+}
+function markProtoBtn() {
+  document.getElementById('pFlv').classList.toggle('on', curProto === 'flv');
+  document.getElementById('pHls').classList.toggle('on', curProto === 'hls');
+  var rtmpBtn = document.getElementById('pRtmp');
+  if (rtmpBtn) rtmpBtn.classList.toggle('on', curProto === 'rtmp');
+  refreshPstatsProto();
+}
+// 协议参数：完整显示当前播放协议（FLV / HLS / RTMP 中继）
+function refreshPstatsProto() {
+  var p = document.getElementById('stProto');
+  if (!p) return;
+  p.textContent = (mode === 'relay') ? 'FLV · ffmpeg 中继' : (curProto ? curProto.toUpperCase() : '--');
+}
+// 分辨率 / 帧率实时刷新（完整显示，不再截断）
+function gcd(a, b) { while (b) { var t = b; b = a % b; a = t; } return a || 1; }
+function updateResStats() {
+  var res = document.getElementById('stRes'), ratio = document.getElementById('stRatio');
+  if (res) res.textContent = (v.videoWidth && v.videoHeight) ? (v.videoWidth + '×' + v.videoHeight) : '--';
+  if (ratio) {
+    if (v.videoWidth && v.videoHeight) {
+      var g = gcd(v.videoWidth, v.videoHeight);
+      ratio.textContent = (v.videoWidth / g) + ':' + (v.videoHeight / g);
+    } else ratio.textContent = '--';
+  }
+}
+// 预览画面方向（横屏 / 竖屏 / 旋转）：仅旋转显示，不改源分辨率与尺寸比
+var previewRot = 0, previewForcePortrait = false;
+function applyOrientation() {
+  var stage = document.getElementById('stage');
+  if (!stage || !v) return;
+  var sw = stage.clientWidth || 1, sh = stage.clientHeight || 1;
+  var rot = previewRot, scale = 1;
+  if (rot === 90 || rot === 270) {
+    // 旋转 90/270 后显示框宽高互换，需缩放以适配舞台
+    var ar = (v.videoWidth && v.videoHeight) ? (v.videoWidth / v.videoHeight) : 0;
+    var dW, dH;
+    if (!ar) { dW = v.clientWidth || sw; dH = v.clientHeight || sh; }
+    else if (ar >= sw / sh) { dW = sw; dH = sw / ar; } else { dH = sh; dW = sh * ar; }
+    var nW = dH, nH = dW;
+    scale = Math.min(sw / nW, sh / nH);
+    if (!isFinite(scale) || scale <= 0) scale = 1;
+  }
+  v.style.transformOrigin = 'center center';
+  v.style.transform = 'rotate(' + rot + 'deg) scale(' + scale + ')';
+  var r = document.getElementById('stRotate');
+  if (r) r.textContent = (previewForcePortrait ? '竖屏 ' : '横屏 ') + rot + '°';
+}
+function setOrient(mode, btn) {
+  previewForcePortrait = (mode === 'port');
+  previewRot = previewForcePortrait ? 90 : 0;
+  document.getElementById('oLand').classList.toggle('on', !previewForcePortrait);
+  document.getElementById('oPort').classList.toggle('on', previewForcePortrait);
+  if (btn) { /* keep group visual only */ }
+  applyOrientation();
+}
+function rotStep() {
+  previewRot = (previewRot + 90) % 360;
+  previewForcePortrait = (previewRot === 90 || previewRot === 270);
+  document.getElementById('oLand').classList.toggle('on', previewRot === 0 || previewRot === 180);
+  document.getElementById('oPort').classList.toggle('on', previewForcePortrait);
+  applyOrientation();
+}
+function attachStats() {
+  function onMeta() { updateResStats(); applyOrientation(); }
+  v.addEventListener('loadedmetadata', onMeta);
+  v.addEventListener('playing', onMeta);
+  v.addEventListener('resize', onMeta);
+  updateResStats();
+  applyOrientation();
+  try { window.addEventListener('resize', applyOrientation); } catch (e) {}
+  // 帧率：用 requestVideoFrameCallback 逐帧计数（Electron/Chromium 支持），1 秒滚动统计
+  if (v.requestVideoFrameCallback) {
+    var cnt = 0, t0 = 0;
+    function loop(now) {
+      if (!t0) t0 = now;
+      cnt++;
+      if (now - t0 >= 1000) {
+        var f = document.getElementById('stFps');
+        if (f) f.textContent = Math.round(cnt * 1000 / (now - t0)) || '--';
+        cnt = 0; t0 = now;
+      }
+      try { v.requestVideoFrameCallback(loop); } catch (e) {}
+    }
+    try { v.requestVideoFrameCallback(loop); } catch (e) {}
+  }
+}
+// r67：RTMP 协议按钮 → 直接启动 ffmpeg 中继
+function playRtmpDirect(btn) {
+  // 构造 RTMP 地址（从当前播放地址推算，或使用原始 RTMP 候选）
+  var rtmpUrl = null;
+  for (var i = 0; i < cands.length; i++) {
+    if (/^rtmp:/i.test(cands[i])) { rtmpUrl = cands[i]; break; }
+  }
+  if (!rtmpUrl) {
+    // 尝试从 HTTP 地址反推 RTMP（同域名 / 同 App / 同 StreamName）
+    var h = hostOf(playUrl);
+    var pathMatch = playUrl.match(/\/([^/]+\/[^/]+?)(?:\.[a-z0-9]+)?(\?.*)?$/);
+    if (pathMatch) rtmpUrl = 'rtmp://' + h + '/' + pathMatch[1];
+  }
+  if (!rtmpUrl || !/^rtmp:/i.test(rtmpUrl)) {
+    showErr('未找到可用的 RTMP 推流地址。请在地址栏手动输入 rtmp:// 开头的地址后点「播放」');
+    return;
+  }
+  // 切换到 RTMP 中继模式
+  curProto = 'rtmp'; markProtoBtn();
+  if (btn) { playUrl = rtmpUrl; document.getElementById('urlbox').textContent = playUrl; }
+  playRelay();
+}
+function setOther() {
+  otherUrl = '';
+  if (curProto === 'flv' && /\.flv(\?|$)/.test(playUrl)) otherUrl = playUrl.replace(/\.flv(\?|$)/, '.m3u8$1');
+  if (curProto === 'hls' && /\.m3u8(\?|$)/.test(playUrl)) otherUrl = playUrl.replace(/\.m3u8(\?|$)/, '.flv$1');
+  otherProto = curProto === 'flv' ? 'hls' : 'flv';
+}
+function statusHint(status) {
+  if (status === 403) return '403 鉴权失败：播放域名已开启防盗链。预览已自动附加候选 Key（云端读取的播放 Key → 推流 Key → 裸地址，每种 Key 均生成 MD5 + SHA256 双算法签名）仍被拒，说明控制台主 Key 与本机所有候选均不一致。请到「域名管理 → 管理 → 鉴权配置」核对主 Key，或在「地址生成器」手动输入正确 Key';
+  if (status === 404) return '404 找不到流：该流当前可能已停止推流（在线流列表有延迟），或 AppName/流名后缀不匹配';
+  if (status === 408 || status === 504) return '请求超时：CDN 未响应，检查网络或稍后重试';
+  return 'HTTP ' + status + '：CDN 返回错误';
+}
+function probe(url, cb, timeoutMs) {
+  try {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.timeout = timeoutMs || 8000;
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState >= 2 && xhr.status) { var s = xhr.status; xhr.abort(); cb(s); }
+    };
+    xhr.ontimeout = function () { cb(0); };
+    xhr.onerror = function () { cb(0); };
+    xhr.send();
+  } catch (e) { cb(0); }
+}
+function showErr(msg) { tip.style.color = ''; tip.textContent = msg; }
+function hostOf(u) { return (u.split('/')[2] || '').slice(0, 40); }
+// ---------- 候选地址调度 ----------
+function playCandidate(i) {
+  candIdx = i; playUrl = cands[i]; directFailed = 0;
+  document.getElementById('urlbox').textContent = playUrl;
+  var hsel = document.getElementById('hostSel');
+  if (hsel) hsel.value = hostOf(playUrl).toLowerCase();
+  if (/\.mp4(\?|$)/.test(playUrl)) {
+    v.src = playUrl; v.play().catch(function () {});
+    tip.textContent = '播放中（MP4 点播文件）'; dlog('MP4 点播直连');
+  } else if (/\.m3u8(\?|$)/.test(playUrl)) {
+    playProto('hls');
+  } else if (/^rtmp:/i.test(playUrl)) {
+    showErr('RTMP 无法被浏览器内核直接解码，正在通过内置 ffmpeg 拉流转 FLV 播放…（若无画面可点顶部「' +
+      (extPlayers.length ? extPlayers[0].name : 'VLC') + ' 播放」用原生播放器打开）');
+    playRelay();
+  } else {
+    playProto('flv');
+  }
+}
+function nextCandidate(reason) {
+  if (mode !== 'direct' || candIdx >= cands.length - 1) return false;
+  candIdx++;
+  dlog('切换候选地址 #' + (candIdx + 1) + '：' + cands[candIdx]);
+  tip.textContent = reason + '，自动尝试下一候选地址（' + (candIdx + 1) + '/' + cands.length + '）…';
+  setTimeout(function () { playCandidate(candIdx); }, 300);
+  return true;
+}
+// ---------- ffmpeg 本地中继 ----------
+function setRelayBtn(on, text) {
+  var b = document.getElementById('relayBtn');
+  if (!b) return;
+  b.disabled = !!on && !text;
+  b.textContent = text || '🚀 ffmpeg 中继播放';
+  b.classList.toggle('primary', mode !== 'relay');
+}
+function ensureRelayBtn() {
+  if (document.getElementById('relayBtn')) return;
+  var b = document.createElement('button');
+  b.id = 'relayBtn';
+  b.onclick = playRelay;
+  document.querySelector('.bar').appendChild(b);
+  setRelayBtn(false);
+}
+var relayPlaying = false;
+function playRelay() {
+  ensureRelayBtn();
+  if (relayPlaying) { // 再点一次 = 停止中继，恢复直连
+    relayPlaying = false;
+    window.tcapiRelayStop && window.tcapiRelayStop();
+    setRelayBtn(false);
+    destroyPlayer();
+    playProto(curProto || 'flv');
+    return;
+  }
+  mode = 'relay';
+  destroyPlayer();
+  setRelayBtn(false, '⏳ 中继启动中…');
+  tip.textContent = '正在通过 ffmpeg 原生拉流（中继模式）…';
+  dlog('启动 ffmpeg 中继：' + playUrl);
+  window.tcapiRelay(playUrl).then(function (r) {
+    if (!r.ok) {
+      relayPlaying = false;
+      setRelayBtn(false);
+      // r69：中继起不来 = 源地址拉不通，给明确原因 + 原生播放器出路
+      showErr('中继拉流失败：' + r.error + '。可点顶部「' + (extPlayers.length ? extPlayers[0].name : 'VLC') +
+        ' 播放」用原生播放器验证该地址是否真的有流');
+      dlog('中继失败：' + r.error);
+      return;
+    }
+    relayPlaying = true;
+    dlog('中继就绪：' + r.url);
+    startFlvPlayer(r.url, true);
+    setRelayBtn(false, '⏹ 停止中继，恢复直连');
+  });
+}
+function startFlvPlayer(url, isRelay) {
+  destroyPlayer();
+  curProto = 'flv'; markProtoBtn();
+  tip.textContent = '正在连接（FLV ' + (isRelay ? '本地中继' : '直连') + '）…';
+  if (!window.mpegts) { fail('本地 mpegts.js 加载异常'); return; }
+  if (!mpegts.getFeatureList().mseLivePlayback) { fail('当前环境不支持 FLV（MSE），请切换 HLS 或使用中继播放'); return; }
+  try {
+    player = mpegts.createPlayer(
+      { type: 'flv', url: url, isLive: true, hasAudio: true, hasVideo: true },
+      { enableStashBuffer: false, stashInitialSize: 128, autoCleanupSourceBuffer: true,
+        lazyLoad: false, liveBufferLatencyChasing: true,
+        liveBufferLatencyMaxLatency: 3, liveBufferLatencyMinRemain: 0.5 });
+    player.attachMediaElement(v);
+    player.load(); v.play().catch(function () {});
+    startNoDataWatch(isRelay);
+    player.on(mpegts.Events.MEDIA_INFO, function () {
+      tip.style.color = '#7ee2a8';
+      tip.textContent = '播放中（FLV' + (isRelay ? ' · ffmpeg 中继' : '') + '）';
+      setTimeout(function () { tip.style.color = ''; }, 3000);
+      dlog('媒体信息就绪，开始播放');
+    });
+    player.on(mpegts.Events.ERROR, function (etype, edetail, einfo) {
+      var detail = edetail + (einfo && einfo.code ? ' code=' + einfo.code : '');
+      dlog('FLV 错误：' + detail);
+      if (isRelay) {
+        // r69：中继失败时明确给出原生播放器这条出路（RTMP 最可靠播放方式）
+        showErr('中继播放错误（' + detail + '）：源流可能已停止，或该流编码不被内置 FLV 播放器支持（如 H.265 over RTMP）。' +
+          '可点顶部「' + (extPlayers.length ? extPlayers[0].name : 'VLC') + ' 播放」用原生播放器打开，或点「重新加载」重试');
+        return;
+      }
+      onDirectFail(detail);
+    });
+  } catch (e) { fail('播放失败: ' + e.message); }
+}
+function onDirectFail(detail) {
+  if (mode !== 'direct') return;
+  directFailed++;
+  dlog('直连失败 #' + directFailed + '（候选 ' + (candIdx + 1) + '/' + cands.length + '）：' + detail);
+  // 先探测拿 HTTP 状态，决定换地址还是换播放方式
+  probe(playUrl, function (status) {
+    dlog('候选 ' + (candIdx + 1) + ' 探测 → ' + (status ? 'HTTP ' + status : '无响应（网络不通/DNS 失败）'));
+    if (status === 200 || status === 206) {
+      // 流可达：多半是解码/协议问题 → 先换协议，再试中继
+      if (directFailed === 1 && otherUrl) {
+        tip.textContent = '播放失败（' + detail + '），自动切换 ' + otherProto.toUpperCase() + ' 协议重试…';
+        playUrl = otherUrl;
+        document.getElementById('urlbox').textContent = playUrl;
+        setTimeout(function () { playProto(otherProto); }, 400);
+        return;
+      }
+      ensureRelayBtn();
+      if (directFailed >= 2) {
+        tip.textContent = '直连播放失败（' + detail + '），自动尝试 ffmpeg 中继…';
+        playRelay();
+        return;
+      }
+      showErr('流已连通但解码失败（' + detail + '）。可点击「ffmpeg 中继播放」原生拉流观看，或复制地址用 VLC 验证');
+    } else if (status) {
+      // 4xx/5xx：当前候选的域名/鉴权/协议有问题 → 换下一候选（换域名比换协议更可能解决）
+      if (!nextCandidate('HTTP ' + status)) {
+        showErr('播放失败（' + detail + '）：' + statusHint(status));
+        ensureRelayBtn();
+      }
+    } else {
+      // 网络不通 → 换下一候选（https/http 互换在候选列表中已覆盖）
+      if (!nextCandidate('网络不通')) {
+        showErr('网络错误：无法连接到 ' + hostOf(playUrl) + '（域名解析失败 / 网络不通 / CNAME 未生效 / HTTPS 证书未配置）。可尝试「ffmpeg 中继播放」或用下方手动测试输入其他地址');
+        ensureRelayBtn();
+      }
+    }
+  }, 5000);
+}
+function fail(m) { tip.textContent = m; }
+function setRate(b, r) { v.playbackRate = r; var bs = document.querySelectorAll('.bar .grp button'); bs.forEach(function (x) { x.classList.remove('act'); }); b.classList.add('act'); }
+function dl(name, dataUrl) { var a = document.createElement('a'); a.href = dataUrl; a.download = name; a.click(); }
+function ts() { var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n }; return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()); }
+function doSnap(b) { try { var c = document.createElement('canvas'); c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720; c.getContext('2d').drawImage(v, 0, 0, c.width, c.height); dl('screenshot-' + ts() + '.png', c.toDataURL('image/png')); tip.style.color = '#7ee2a8'; tip.textContent = '截图已保存'; setTimeout(function () { tip.style.color = ''; }, 2000); } catch (e) { tip.textContent = '截图失败（跨域视频受浏览器安全限制）'; tip.style.color = ''; } }
+var rec = null, chunks = [];
+function doRec(b) {
+  if (rec) { rec.stop(); return; }
+  try { var st = v.captureStream(); rec = new MediaRecorder(st, { mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm' }); chunks = [];
+    rec.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data) };
+    rec.onstop = function () { var blob = new Blob(chunks, { type: 'video/webm' }); var fr = new FileReader(); fr.onload = function () { dl('recording-' + ts() + '.webm', fr.result) }; fr.readAsDataURL(blob); rec = null; b.textContent = '⏺ 录屏'; b.classList.remove('on'); };
+    rec.start(1000); b.textContent = '⏹ 停止录制'; b.classList.add('on');
+  } catch (e) { tip.textContent = '录屏不可用：' + e.message; }
+}
+function playProto(proto, btn) {
+  mode = 'direct';
+  destroyPlayer();
+  curProto = proto;
+  markProtoBtn();
+  setOther();
+  if (btn && proto === otherProto) { playUrl = otherUrl; document.getElementById('urlbox').textContent = playUrl; }
+  tip.style.color = '';
+  tip.textContent = '正在连接 ' + proto.toUpperCase() + ' 流…';
+  dlog('尝试直连播放：' + proto.toUpperCase() + ' ← ' + hostOf(playUrl));
+  if (proto === 'flv') { startFlvPlayer(playUrl, false); return; }
+  // HLS
+  if (!window.Hls) { fail('本地 hls.js 加载异常'); return; }
+  if (!Hls.isSupported()) { fail('当前环境不支持 HLS（MSE），请切换 FLV 或使用 ffmpeg 中继播放'); ensureRelayBtn(); return; }
+  try {
+    player = new Hls({ lowLatencyMode: true, liveSyncDurationCount: 3, manifestLoadingTimeOut: 10000 });
+    player.loadSource(playUrl);
+    player.attachMedia(v);
+    startNoDataWatch(false);
+    player.on(Hls.Events.MANIFEST_PARSED, function () { tip.textContent = '播放中（HLS）'; v.play().catch(function () {}); dlog('HLS 清单解析成功'); });
+    player.on(Hls.Events.ERROR, function (evt, data) {
+      if (!data.fatal) return;
+      dlog('HLS 错误：' + data.details + (data.response ? ' HTTP ' + data.response.code : ''));
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details === 'manifestLoadError' && data.response && data.response.code) {
+        if (!nextCandidate('HTTP ' + data.response.code)) showErr('HLS 播放错误：' + statusHint(data.response.code));
+      } else {
+        onDirectFail(data.details);
+      }
+    });
+  } catch (e) { fail('播放失败: ' + e.message); }
+}
+// 手动测试：粘贴任意播放地址直接播放
+function playManual() {
+  var u = document.getElementById('manUrl').value.trim();
+  if (!u) { showErr('请先粘贴播放地址'); return; }
+  if (!/^(https?|rtmp):\/\//i.test(u)) { showErr('地址需以 http(s):// 或 rtmp:// 开头'); return; }
+  dlog('手动测试地址：' + u);
+  cands = [u];
+  playCandidate(0);
+}
+// 中继 IPC 桥（复用主窗口 preload 暴露的 tcapi）
+window.tcapiRelay = function (url) { return window.tcapi && window.tcapi.ffRelay ? window.tcapi.ffRelay(url) : Promise.resolve({ ok: false, error: '中继不可用' }); };
+window.tcapiRelayStop = function () { return window.tcapi && window.tcapi.ffRelayStop ? window.tcapi.ffRelayStop() : Promise.resolve(); };
+
+// ---------- r69：外部原生播放器（VLC）兜底 ----------
+// 浏览器内核没有 RTMP 协议栈，内置中继已修复时序，但遇到 H.265 over RTMP、
+// CDN 侧异常 FLV 等场景，交给 VLC 这类原生播放器仍是最终可靠解。
+var extPlayers = [];
+function loadPlayers(btn) {
+  if (!window.tcapi || !window.tcapi.ffListPlayers) { if (btn) { btn.textContent = '▶ VLC 播放'; } return; }
+  window.tcapi.ffListPlayers().then(function (r) {
+    extPlayers = (r && r.ok && r.list) ? r.list : [];
+    if (btn) {
+      btn.textContent = extPlayers.length ? ('▶ ' + extPlayers[0].name + ' 播放') : '▶ VLC 播放';
+      btn.title = extPlayers.length
+        ? ('用本机 ' + extPlayers.map(function (p) { return p.name; }).join(' / ') + ' 打开（RTMP 最可靠）')
+        : '未检测到本机播放器（VLC / IINA / PotPlayer / mpv）— 点击可查看安装指引';
+    }
+  });
+}
+function openInVlc(btn) {
+  var target = playUrl;
+  if (!/^(https?|rtmp|rtsp|srt):\/\//i.test(target || '')) { showErr('当前没有可播放的地址'); return; }
+  if (!window.tcapi || !window.tcapi.ffOpenInPlayer) { showErr('外部播放器桥接不可用'); return; }
+  var old = btn.textContent;
+  btn.textContent = '⏳ 拉起中…'; btn.disabled = true;
+  window.tcapi.ffOpenInPlayer(target, extPlayers.length ? extPlayers[0].path : '').then(function (r) {
+    btn.disabled = false; btn.textContent = old;
+    if (!r.ok) {
+      // 没装播放器时给出可操作指引，而不是干巴巴一句失败
+      dlog('外部播放器：' + r.error);
+      showErr(r.error + (r.needInstall ? ' —— 下载地址 https://www.videolan.org/vlc/' : ''));
+      return;
+    }
+    tip.style.color = '#7ee2a8';
+    tip.textContent = '已用 ' + r.player + ' 打开（原生播放 RTMP 无需中继，若仍黑屏请确认流正在推）';
+    dlog('已拉起外部播放器 ' + r.player + '：' + target);
+    setTimeout(function () { tip.style.color = ''; }, 4000);
+  });
+}
+loadPlayers(document.getElementById('vlcBtn'));
+attachStats();
+
+// ---------- 播放前域名实测排序 ----------
+// 多播放域名共用同组时哪个域名真有流云端查不出来（200 空响应 = 鉴权通过但流未路由到该域名）；
+// 起播前并行探测各域名候选（读首个数据块），有流的排最前；全部失败则保持原序交给看门狗兜底
+function probeCandHosts(cds, cb) {
+  var hs = [];
+  cds.forEach(function (u) { var h = hostOf(u).toLowerCase(); if (h && hs.indexOf(h) < 0) hs.push(h); });
+  if (hs.length < 2) { cb(cds); return; }
+  var alive = {}, settled = 0, allDone = false;
+  var fin = function () {
+    if (allDone) return;                       // 防御重复回调导致提前结算
+    if (++settled < hs.length) return;
+    allDone = true;
+    var good = [], bad = [];
+    cds.forEach(function (u) { ((alive[hostOf(u).toLowerCase()]) ? good : bad).push(u); });
+    cb((good.length && good.length < cds.length) ? good.concat(bad) : cds);
+  };
+  hs.forEach(function (h) {
+    var url = cds.filter(function (u) { return hostOf(u).toLowerCase() === h; })[0];
+    var hdone = false;
+    var hfin = function () { if (hdone) return; hdone = true; fin(); };   // 每域名只结算一次
+    var to = setTimeout(hfin, 5000);   // 5s：CDN 冷启动可能较慢，3.5s 会误判有流域名
+    try {
+      fetch(url, { cache: 'no-store' }).then(function (resp) {
+        if (!resp.ok || !resp.body) { clearTimeout(to); hfin(); return null; }
+        var rd = resp.body.getReader();
+        return rd.read().then(function (r) {
+          if (r && r.value && r.value.length > 4) alive[h] = true;
+          clearTimeout(to);
+          try { rd.cancel(); } catch (e) {}
+          hfin();
+        });
+      }).catch(function () { clearTimeout(to); hfin(); });
+    } catch (e) { clearTimeout(to); hfin(); }
+  });
+}
+
+// 入口分发：rtmp 直接走中继；其余先实测域名再**立即直接播放**（先播后探，失败才逐级降级）
+function entryPlay() {
+  if (/^rtmp:/i.test(playUrl)) {
+    showErr('RTMP 无法被浏览器内核直接解码，正在通过内置 ffmpeg 拉流转 FLV 播放…（若无画面可点顶部「' +
+      (extPlayers.length ? extPlayers[0].name : 'VLC') + ' 播放」用原生播放器打开）');
+    playRelay();
+  } else {
+    playCandidate(0);
+  }
+}
+if (/^rtmp:/i.test(playUrl)) {
+  entryPlay();
+} else if (cands.length >= 2) {   // >= 2：候选瘦身后 2 域名恰 2 条候选，> 2 会让实测永远跳过
+  dlog('正在实测各播放域名是否有流数据…');
+  probeCandHosts(cands, function (ordered) {
+    cands = ordered; candIdx = 0; playUrl = cands[0];
+    document.getElementById('urlbox').textContent = playUrl;
+    var hsel = document.getElementById('hostSel');
+    if (hsel) hsel.value = hostOf(playUrl).toLowerCase();
+    dlog('域名实测完成，优先播放：' + hostOf(playUrl));
+    entryPlay();
+  });
+} else {
+  entryPlay();
+}
+// ===========================================================================
+// 音频可视化（独立预览窗自带精简实现，与工作台画法一致）
+// 两个坑与主页面相同：① MediaElementSource 同一个 video 只能创建一次 → 节点链缓存复用；
+// ② video.muted=true 会让分析输出恒 0 → 装配后 muted 置 false、改用 gain 控制听感
+// ===========================================================================
+var AV = { ctx: null, nodes: null, h: null, on: true, gainWanted: 0 };
+function avNodesP() {
+  if (AV.nodes) return AV.nodes;
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    AV.ctx = AV.ctx || new AC();
+    var src = AV.ctx.createMediaElementSource(v);
+    var sp = AV.ctx.createChannelSplitter(2);
+    var aL = AV.ctx.createAnalyser(), aR = AV.ctx.createAnalyser();
+    aL.fftSize = 512; aR.fftSize = 512;
+    aL.smoothingTimeConstant = 0.72; aR.smoothingTimeConstant = 0.72;
+    var g = AV.ctx.createGain(); g.gain.value = 0;
+    src.connect(sp); sp.connect(aL, 0); sp.connect(aR, 1);
+    src.connect(g); g.connect(AV.ctx.destination);
+    AV.nodes = { src: src, anL: aL, anR: aR, gain: g };
+    v.muted = false;                 // ★ 见坑②：muted 会让分析输出恒为 0
+    return AV.nodes;
+  } catch (e) { dlog('音频分析不可用：' + e.message); return null; }
+}
+function avAttachP() {
+  if (!AV.on) return;
+  if (AV.h) return;
+  var n = avNodesP();
+  var box = document.getElementById('aviz');
+  var cv = box && box.querySelector('canvas');
+  var note = box && box.querySelector('.aviz-note');
+  if (!n || !cv) { if (note) note.textContent = '当前环境不支持音频分析（Web Audio 不可用）'; return; }
+  try { if (AV.ctx.state === 'suspended' && AV.ctx.resume) AV.ctx.resume(); } catch (e) {}
+  var c2 = cv.getContext('2d');
+  var h = { c2: c2, cv: cv, note: note, freq: new Uint8Array(n.anL.frequencyBinCount),
+    tl: new Float32Array(n.anL.fftSize), tr: new Float32Array(n.anR.fftSize),
+    peakL: 0, peakR: 0, silent: 0, stopped: 0, raf: 0 };
+  try { n.gain.gain.value = AV.gainWanted; } catch (e) {}
+  function rms(a) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i] * a[i]; return Math.sqrt(s / a.length); }
+  function lvl(x) { var db = 20 * Math.log10(x || 1e-6); var t = (db + 60) / 60; return Math.max(0, Math.min(1, t)); }
+  function paint() {
+    if (h.stopped) return;
+    var dpr = window.devicePixelRatio || 1;
+    var W = cv.clientWidth || 600, H = cv.clientHeight || 42;
+    if (cv.width !== Math.round(W * dpr)) cv.width = Math.round(W * dpr);
+    if (cv.height !== Math.round(H * dpr)) cv.height = Math.round(H * dpr);
+    c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c2.clearRect(0, 0, W, H);
+    n.anL.getByteFrequencyData(h.freq);
+    n.anL.getFloatTimeDomainData(h.tl);
+    n.anR.getFloatTimeDomainData(h.tr);
+    var pk = 0;
+    for (var i = 0; i < h.freq.length; i++) if (h.freq[i] > pk) pk = h.freq[i];
+    var lv = lvl(rms(h.tl)), rv = lvl(rms(h.tr));
+    if (pk < 3 && lv < 0.02 && rv < 0.02) h.silent++; else h.silent = 0;
+    var barH = H - 16, nb = 48, bw = W / nb;
+    var maxBin = Math.min(h.freq.length, Math.floor(h.freq.length * 0.72));
+    for (var b = 0; b < nb; b++) {
+      var lo = Math.floor(Math.pow(b / nb, 1.7) * maxBin);
+      var hi = Math.max(lo + 1, Math.floor(Math.pow((b + 1) / nb, 1.7) * maxBin));
+      var m = 0;
+      for (var k = lo; k < hi && k < h.freq.length; k++) if (h.freq[k] > m) m = h.freq[k];
+      var bh = Math.max(1, (m / 255) * barH), x = b * bw + 0.5, y = H - 14 - bh;
+      var g = c2.createLinearGradient(0, H - 14, 0, H - 14 - barH);
+      g.addColorStop(0, '#22c55e'); g.addColorStop(0.55, '#3b82f6'); g.addColorStop(1, '#ef4444');
+      c2.fillStyle = g;
+      c2.fillRect(x, y, Math.max(1, bw - 1.2), bh);
+    }
+    function ch(yy, val, peak, col) {
+      c2.fillStyle = '#232b40'; c2.fillRect(0, yy, W, 4);
+      c2.fillStyle = col; c2.fillRect(0, yy, val * W, 4);
+      c2.fillStyle = '#ef4444'; c2.fillRect(Math.max(0, peak * W - 1), yy - 1, 2, 6);
+    }
+    ch(H - 12, lv, h.peakL, '#3b82f6');
+    ch(H - 6, rv, h.peakR, '#22c55e');
+    h.peakL = Math.max(lv, h.peakL - 0.012);
+    h.peakR = Math.max(rv, h.peakR - 0.012);
+    var msg = h.silent > 90 ? '无音频数据（该流可能无音轨，或跨域限制导致浏览器不提供音频采样）'
+      : (h.silent > 30 ? '当前静音或音量极低' : '');
+    if (note && note.textContent !== msg) note.textContent = msg;
+  }
+  function loop() { if (h.stopped) return; h.raf = requestAnimationFrame(loop); try { paint(); } catch (e) { h.stopped = 1; } }
+  h.stop = function () { h.stopped = 1; if (h.raf) cancelAnimationFrame(h.raf); };
+  AV.h = h;
+  loop();
+}
+function avDetachP() { if (AV.h) { try { AV.h.stop(); } catch (e) {} AV.h = null; } }
+v.addEventListener('playing', avAttachP);          // 出画面后再接分析，此前拿不到音频数据
+function toggleViz(btn) {
+  AV.on = !AV.on;
+  var box = document.getElementById('aviz');
+  if (box) box.classList.toggle('off', !AV.on);
+  btn.classList.toggle('on', AV.on);
+  if (AV.on) avAttachP(); else avDetachP();
+}
+// 声音开关：装配分析后必须走 gain（video.muted=true 会让分析恒 0），未装配时退回元素静音
+function toggleSound(btn) {
+  var want = !(btn.textContent === '静音');      // 当前按钮文案为「静音」= 有声 → 点它要静音
+  AV.gainWanted = want ? 1 : 0;
+  if (AV.nodes && AV.h) { v.muted = false; try { AV.nodes.gain.gain.value = AV.gainWanted; } catch (e) {} }
+  else v.muted = !want;
+  btn.textContent = want ? '静音' : '开启声音';
+  if (want) { v.volume = 1; v.play().catch(function () {}); }
+}
+v.addEventListener('error', function () {
+  if (v.error && v.error.code && mode === 'direct') { dlog('video 元素解码错误 code=' + v.error.code); onDirectFail('解码错误 code=' + v.error.code); }
+});
+</script></body></html>
