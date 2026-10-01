@@ -58,11 +58,11 @@ $cmakeErr = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
 $cmakeCode = $LASTEXITCODE
 if ($cmakeCode -ne 0) {
   Write-Host "::error::cmake configure 失败 (exit $cmakeCode)"
-  # 把含错误关键词的最后几行通过 ::error 输出（check-run annotations API 可读）
-  $errLines = @($cmakeErr) | Where-Object { $_ -match "Error|error|fatal|not found|No such|CMake" } | Select-Object -Last 12
+  # 把含错误关键词的行通过 ::error 输出（含 Could NOT find / missing 等致命行）
+  $errLines = @($cmakeErr) | Where-Object { $_ -match "Error|error|fatal|not found|No such|CMake|Could|missing|Missing|FATAL" } | Select-Object -Last 20
   foreach ($l in $errLines) { Write-Host "::error::$l" }
-  # 最后 20 行透传到日志
-  @($cmakeErr) | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
+  # 最后 30 行透传到日志
+  @($cmakeErr) | Select-Object -Last 30 | ForEach-Object { Write-Host $_ }
   exit 1
 }
 
