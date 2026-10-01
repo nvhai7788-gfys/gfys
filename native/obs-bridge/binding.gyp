@@ -31,7 +31,7 @@
       "cflags_cc": [ "-std=c++17", "-fexceptions" ],
       "conditions": [
         [ "OS=='win'", {
-          "libraries": [ "%(OBS_LIB_DIR)s/obs.lib" ],
+          "libraries": [ "%(OBS_LIB_DIR)s/libobs.lib" ],
           "defines": [ "UNICODE", "_UNICODE", "WIN32_LEAN_AND_MEAN", "NOMINMAX" ],
           "msvs_settings": {
             "VCCLCompilerTool": {
