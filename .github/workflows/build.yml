@@ -36,7 +36,9 @@ jobs:
             arch: x64
             target: mac
             eb_flags: "--mac dmg --x64"
-          - os: windows-latest
+          # 注意：windows-latest 自 2026-06 起迁移到 VS2026（generator "Visual Studio 18 2026"），
+          # 而 obs-studio 30.x 的预设仍是 VS2022，故钉死 windows-2022 保持 VS 17 2022。
+          - os: windows-2022
             arch: x64
             target: win
             eb_flags: "--win nsis zip --x64"
