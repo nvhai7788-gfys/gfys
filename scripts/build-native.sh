@@ -60,12 +60,19 @@ cmake --build "$BUILD" --config Release --parallel --target \
 cd "$SRC/native/obs-bridge"
 
 # libobs 是 framework，定位其父目录（供 node-gyp 用 -F 链接）。
-# 注意：Xcode 15 会生成 EagerLinkingTBDs/ 目录（只含 .tbd 链接存根，无真正 dylib），
-#       必须排除，否则会把空壳 framework 打进安装包导致运行时加载失败。
-FW_DIR="$(find "$BUILD" -name 'libobs.framework' -type d | grep -v 'EagerLinkingTBDs' | head -1)"
+# 注意：Xcode 15 会把「真正 dylib」与「.tbd 链接存根」分开存放（EagerLinkingTBDs/ 只含 .tbd，
+#       且可能存在多个只含 .tbd 的 framework 目录）。必须找含真正 dylib（Versions/A/libobs 无扩展名）的那个。
+FW_DIR=""
+for _fw in $(find "$BUILD" -name 'libobs.framework' -type d | grep -v 'EagerLinkingTBDs'); do
+  if [ -f "$_fw/Versions/A/libobs" ]; then
+    FW_DIR="$_fw"
+    break
+  fi
+done
 if [ -z "$FW_DIR" ]; then
-  echo "::error::未找到 libobs.framework（真正含 dylib 的那个），请检查编译是否成功" >&2
-  exit 1
+  echo "::error::未找到含真正 dylib 的 libobs.framework（只有 .tbd 存根），运行时加载会失败" >&2
+  # 兜底：退化为任意非 EagerLinkingTBDs 的 framework（至少能链接）
+  FW_DIR="$(find "$BUILD" -name 'libobs.framework' -type d | grep -v 'EagerLinkingTBDs' | head -1)"
 fi
 OBS_LIB_DIR="$(dirname "$FW_DIR")"
 echo "==> libobs.framework 目录：$FW_DIR"
@@ -93,22 +100,24 @@ mkdir -p "$BIN/obs-bridge" "$BIN/obs"
 cp -f "$SRC/native/obs-bridge/build/Release/obs_bridge.node" "$BIN/obs-bridge/obs_bridge.node" 2>/dev/null || \
   cp -f "$SRC/native/obs-bridge/build/Release/obs_bridge.node" "$BIN/obs-bridge/obs_bridge.node"
 
-# libobs.framework 整体复制
-FW="$(find "$BUILD" -name 'libobs.framework' -type d | head -1)"
-if [ -n "$FW" ]; then
-  cp -R "$FW" "$BIN/obs/libobs.framework"
+# libobs.framework 整体复制（复用上面找到的含真正 dylib 的 FW_DIR）
+if [ -n "$FW_DIR" ]; then
+  cp -R "$FW_DIR" "$BIN/obs/libobs.framework"
 fi
 
-# 插件 .plugin bundle
+# 插件 .plugin bundle（排除 EagerLinkingTBDs 存根）
 mkdir -p "$BIN/obs/obs-plugins"
-find "$BUILD" -name '*.plugin' -type d | while read -r p; do
+find "$BUILD" -name '*.plugin' -type d | grep -v 'EagerLinkingTBDs' | while read -r p; do
   cp -R "$p" "$BIN/obs/obs-plugins/"
 done
 
-# data（obs 运行时需要的 locale / 主题等）
+# data（obs 运行时需要的 locale / 主题等）——优先 build 目录，其次源码目录
 if [ -d "$BUILD/rundir/data" ]; then
   mkdir -p "$BIN/obs/data"
   cp -R "$BUILD/rundir/data/." "$BIN/obs/data/"
+elif [ -d "$OBS/data" ]; then
+  mkdir -p "$BIN/obs/data"
+  cp -R "$OBS/data/." "$BIN/obs/data/"
 fi
 
 echo "==> 完成。bin/ 内容："
