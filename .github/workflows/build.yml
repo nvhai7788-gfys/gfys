@@ -128,7 +128,9 @@ jobs:
         env:
           # 不打签名：identity 已在配置中置 null
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 注意：这里不设 GH_TOKEN——否则 electron-builder 检测到 tag 会尝试自动发布 GitHub release，
+          # 而本 job 的 permissions 是 contents: read，会 403 报「Cannot cleanup / Resource not
+          # accessible by integration」。发布 release 由独立的 release.yml（workflow_run 触发）负责。
 
       # ---------- 上传产物 ----------
       - name: 上传产物（macOS）
