@@ -1,6 +1,6 @@
 // 离线单测：ffmpeg-args.js 的 composeVideoFilter（旋转 / 文字 / 图片叠加）
 const assert = require('assert');
-const { composeVideoFilter } = require('../../ffmpeg-args');
+const { composeVideoFilter, compileAudioMix } = require('../../ffmpeg-args');
 
 let pass = 0, fail = 0;
 function check(name, fn) {
@@ -87,6 +87,50 @@ check('图片+文字+缩放+旋转 组合', function () {
 check('disabled 图片不进入滤镜', function () {
   var r = composeVideoFilter({ sources: [{ type: 'image', enabled: false, path: '/tmp/x.png' }] }, [1]);
   assert.ok(!r.complex, 'disabled 不应走 complex');
+});
+
+// ================= v1.1.43：多源音频混音 compileAudioMix =================
+
+// 9) 无音频输入 → null
+check('compileAudioMix 无音频 → null', function () {
+  assert.strictEqual(compileAudioMix([]), null);
+  assert.strictEqual(compileAudioMix(null), null);
+});
+
+// 10) 单路音频 → null（直通，不做 amix）
+check('compileAudioMix 单路 → null 直通', function () {
+  assert.strictEqual(compileAudioMix([{ inIdx: 0 }]), null);
+});
+
+// 11) 双路音频 → amix + aout
+check('compileAudioMix 双路 → amix=inputs=2 + [aout]', function () {
+  var r = compileAudioMix([{ inIdx: 0 }, { inIdx: 1 }]);
+  assert.ok(r && r.complex, '应返回 complex');
+  assert.ok(/\[0:a\].*aformat=sample_rates=44100:channel_layouts=stereo\[a0\]/.test(r.complex), '路 0 格式统一: ' + r.complex);
+  assert.ok(/\[1:a\].*\[a1\]/.test(r.complex), '路 1: ' + r.complex);
+  assert.ok(/\[a0\]\[a1\]amix=inputs=2:duration=longest:normalize=0\[aout\]/.test(r.complex), 'amix 合并: ' + r.complex);
+  assert.strictEqual(r.map, '[aout]');
+});
+
+// 12) 三路音频 + 音量/静音预处理
+check('compileAudioMix 三路 + 音量/静音', function () {
+  var r = compileAudioMix([
+    { inIdx: 0, volume: 0.5 },
+    { inIdx: 1, muted: true },
+    { inIdx: 2 }
+  ]);
+  assert.ok(r && r.complex);
+  assert.ok(/\[0:a\]aformat=sample_rates=44100:channel_layouts=stereo,volume=0\.5\[a0\]/.test(r.complex), '路 0 音量 0.5: ' + r.complex);
+  assert.ok(/\[1:a\].*volume=0\[a1\]/.test(r.complex), '路 1 静音 volume=0: ' + r.complex);
+  assert.ok(/\[2:a\]aformat=sample_rates=44100:channel_layouts=stereo\[a2\]/.test(r.complex), '路 2 默认音量: ' + r.complex);
+  assert.ok(/amix=inputs=3/.test(r.complex), '三路 amix: ' + r.complex);
+});
+
+// 13) 无效输入被过滤（inIdx 为 null 的项）
+check('compileAudioMix 过滤无效输入项', function () {
+  var r = compileAudioMix([{ inIdx: 0 }, { volume: 1 }, { inIdx: 2 }]);
+  assert.ok(r && r.complex);
+  assert.ok(/amix=inputs=2/.test(r.complex), '应只混 2 路有效输入: ' + r.complex);
 });
 
 console.log('\nffmpeg-args 单测: ' + pass + ' 通过 / ' + fail + ' 失败');

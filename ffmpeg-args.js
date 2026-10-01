@@ -263,6 +263,51 @@ function compileSceneGraph(o, sources, inputMap) {
   return { complex: lines.join(';'), map: '[vout]', consumed: consumed, skipped: skipped };
 }
 
+/**
+ * v1.1.43：多源音频混音 —— 把多个含音频的输入流（主画面 + 叠加媒体源/摄像头等）
+ * 混成一条输出音频轨，解决多源合成时音频轨被丢弃的问题（此前只 map 0:a）。
+ *
+ * 入参：
+ *   audioInputs —— [{ inIdx: 输入流序号, volume: 0~1, muted: bool }]，按 inIdx 升序
+ * 返回：
+ *   null            —— 无音频或单路音频（无需混音，调用方走原 -map 0:a? 直通）
+ *   { complex, map } —— 多路混音时返回滤镜片段与输出 map 标签 [aout]
+ *
+ * 说明：
+ *   - 单路时不做 amix（amix 单输入会引入不必要的归一化），保持直通省开销。
+ *   - 静音源用 volume=0 表达（而非剔除该流），保证 amix 的 inputs 计数稳定。
+ *   - amix duration=longest 对齐最长音轨，避免短音轨（如循环素材）被提前截断。
+ *   - 多路音轨的采样率/声道数不一致时，amix 前统一 aformat 重采样到 44100/立体声，
+ *     避免 ffmpeg 因格式不匹配报错（OBS 同款行为：统一混音格式）。
+ */
+function compileAudioMix(audioInputs, o) {
+  o = o || {};
+  var list = (Array.isArray(audioInputs) ? audioInputs : []).filter(function (a) {
+    return a && a.inIdx != null;
+  });
+  // 无音频输入 → null
+  if (!list.length) return null;
+  // 单路音频 → 无需混音（直通），返回 null 由调用方沿用 -map 0:a?
+  if (list.length === 1) return null;
+
+  // 多路混音：先统一格式，再逐路做音量/静音预处理，最后 amix
+  var ar = o.audioRate || '44100';
+  var lines = [];
+  list.forEach(function (a, i) {
+    var tag = 'a' + i;
+    var vol = (a.volume !== undefined && !isNaN(Number(a.volume))) ? Number(a.volume) : 1;
+    if (vol < 0) vol = 0; if (vol > 1) vol = 1;
+    if (a.muted) vol = 0;
+    var chain = 'aformat=sample_rates=' + ar + ':channel_layouts=stereo';
+    if (vol !== 1) chain += ',volume=' + vol;
+    lines.push('[' + a.inIdx + ':a]' + chain + '[' + tag + ']');
+  });
+  lines.push(list.map(function (_, i) { return '[a' + i + ']'; }).join('') +
+    'amix=inputs=' + list.length + ':duration=longest:normalize=0[aout]');
+
+  return { complex: lines.join(';'), map: '[aout]' };
+}
+
 // 基础画布链（缩放/翻转/旋转/竖屏转置），与 composeVideoFilter 头部逻辑同源
 function baseCanvasChain(o) {
   var vf = [];
@@ -309,6 +354,7 @@ function buildDrawtext(s, fontFile) {
 module.exports = {
   composeVideoFilter: composeVideoFilter,
   compileSceneGraph: compileSceneGraph,
+  compileAudioMix: compileAudioMix,
   buildDrawtext: buildDrawtext,
   normColor: normColor,
   needsInput: needsInput,

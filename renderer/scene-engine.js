@@ -429,7 +429,10 @@
         var common = {
           id: s.id, namesource: s.name, enabled: s.enabled !== false,
           pos: s.transform.pos, x: s.transform.x, y: s.transform.y,
-          transform: s.transform
+          transform: s.transform,
+          // v1.1.43：音频控制透传（多源混音用）
+          volume: (s.volume !== undefined) ? s.volume : 1,
+          muted: !!s.muted
         };
         if (s.type === 'image_source') {
           return Object.assign({}, common, { type: 'image', path: st.file || '', w: '' });

@@ -16,7 +16,7 @@ const https = require('https');
 const http = require('http');
 const { spawn, execFileSync } = require('child_process');
 // r71：OBS 场景滤镜构造（缩放/翻转/旋转/来源叠加）抽到纯函数模块，便于离线单测
-const { composeVideoFilter, compileSceneGraph, needsInput: ffNeedsInput } = require('./ffmpeg-args');
+const { composeVideoFilter, compileSceneGraph, compileAudioMix, needsInput: ffNeedsInput } = require('./ffmpeg-args');
 // v1.1.38：libobs 真引擎适配器（可选）——原生 addon 未编译/未打包时为 null，自动回退 ffmpeg
 const { createLibobsEngine } = require('./libobs-engine');
 
@@ -751,6 +751,30 @@ function ffSourceInputArgs(s, primarySrc) {
   return null;
 }
 
+// v1.1.43：判断某来源的输入流是否含音频轨（多源音频混音用）。
+// 与 ffSourceInputArgs 同源判定：能产生音频轨的来源才纳入 amix。
+function ffSourceHasAudio(s) {
+  const st = (s && s.settings) || {};
+  if (!s) return false;
+  if (s.type === 'ffmpeg_source') {
+    // 媒体源：本地媒体文件通常含音频轨（具体有无由 ffmpeg 探测，混音时用 :a? 语义兜底）
+    const p = st.is_local_file === false ? (st.input || '') : (st.local_file || st.file || '');
+    return !!p;
+  }
+  if (s.type === 'av_capture_input') {
+    // 摄像头：仅当显式指定了音频设备时才带音频轨
+    const dev = st.device != null ? String(st.device) : '';
+    if (!dev) return false;
+    if (process.platform === 'darwin') {
+      // avfoundation 串形如 "0:1"（视频:音频），含冒号即带音频
+      return /:/.test(dev) && dev.split(':')[1] !== '';
+    }
+    // dshow：video=名:audio=名 或带 :audio=
+    return /:audio=/.test(dev);
+  }
+  return false;
+}
+
 function buildPushArgs(o) {
   // o: { source: { type, path, deviceVideo, deviceAudio }, rtmp(数组/多路), videoBitrate, outSize, fps, loop, copy,
   //       codec, flip, zoom, preset, gopSec, profile, audioBr }
@@ -790,6 +814,7 @@ function buildPushArgs(o) {
   });
   const imgInputs = [];     // 兼容 composeVideoFilter 旧签名：图片类输入流序号
   const inputMap = {};      // { sourceId: 输入流序号 }
+  const audioInputs = [];   // v1.1.43：含音频的输入流 { inIdx, volume, muted }
   let inIdx = 0;            // 输入流计数（主画面已占用 0）
   overlaySources.forEach(function (s) {
     const inArgs = ffSourceInputArgs(s, src);
@@ -798,8 +823,14 @@ function buildPushArgs(o) {
     inIdx += 1;
     inputMap[s.id] = inIdx;
     if (s.type === 'image_source' || s.type === 'image') imgInputs.push(inIdx);
+    // v1.1.43：叠加源含音频轨时纳入混音
+    if (ffSourceHasAudio(s)) {
+      audioInputs.push({ inIdx: inIdx, volume: s.volume, muted: s.muted });
+    }
   });
   const hasAudio = src.type === 'file' || (src.deviceAudio !== undefined && src.deviceAudio !== '');
+  // v1.1.43：主画面（输入 0）含音频时置于混音首位
+  if (hasAudio) audioInputs.unshift({ inIdx: 0, volume: (src.volume !== undefined ? src.volume : 1), muted: !!src.muted });
   // r66：编码器选择（默认 libx264，支持 H.265/HEVC、VP9）
   const codec = o.codec || 'libx264';
   // r70：按**编码族**判断，不再比对编码器名字 —— 这样 hevc_videotoolbox / hevc_nvenc
@@ -874,15 +905,31 @@ function buildPushArgs(o) {
     } else {
       vfRes = composeVideoFilter(o, imgInputs);
     }
+    // v1.1.43：多源音频混音。先算出音频混音链（多路才返回非 null）。
+    const amix = compileAudioMix(audioInputs, { audioRate: '44100' });
     if (vfRes.complex) {
-      args.push('-filter_complex', vfRes.complex);
-      args.push('-map', vfRes.map);
-      args.push('-map', '0:a?');          // 音频沿用输入 0，与视频分轨映射
+      // 多输入叠加图：把音频图并入同一 filter_complex（视频图末尾 [vout] + 音频图末尾 [aout]）
+      if (amix) {
+        args.push('-filter_complex', vfRes.complex + ';' + amix.complex);
+        args.push('-map', vfRes.map);
+        args.push('-map', amix.map);
+      } else {
+        args.push('-filter_complex', vfRes.complex);
+        args.push('-map', vfRes.map);
+        args.push('-map', '0:a?');          // 单路/无音频：沿用输入 0 音频直通
+      }
     } else if (vfRes.vf) {
-      args.push('-vf', vfRes.vf);
+      if (amix) {
+        // 视频走单输入 -vf 但音频多路（叠加源音频）→ 把 -vf 链包装成图，与音频图合并
+        args.push('-filter_complex', '[0:v]' + vfRes.vf + '[vout];' + amix.complex);
+        args.push('-map', '[vout]');
+        args.push('-map', amix.map);
+      } else {
+        args.push('-vf', vfRes.vf);
+      }
     }
-    // 音频
-    if (hasAudio) args.push('-c:a', 'aac', '-b:a', o.audioBr || '128k', '-ar', '44100');
+    // 音频编码：有音频（主画面音频，或多路混音后必有音轨）时编码 AAC；否则禁音轨
+    if (hasAudio || amix) args.push('-c:a', 'aac', '-b:a', o.audioBr || '128k', '-ar', '44100');
     else args.push('-an');
   }
   // 注入 -progress：stdout 每秒输出 frame/fps/bitrate/total_size/speed 键值对，供质量小窗实时图表。
