@@ -439,11 +439,11 @@ MSBuild version 17.14.60+43b635718 for .NET Framework
 已写入 bin/ffmpeg-win32-x64.exe
 完成。当前 bin/ 内容：
 total 102960
-drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:46 .
-drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:46 ..
--rwxr-xr-x 1 runneradmin 197121 105423872 Oct  1 08:46 ffmpeg-win32-x64.exe
-drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:46 obs
-drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:46 obs-bridge
+drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:58 .
+drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:58 ..
+-rwxr-xr-x 1 runneradmin 197121 105423872 Oct  1 08:58 ffmpeg-win32-x64.exe
+drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:58 obs
+drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:58 obs-bridge
   • electron-builder  version=25.1.8 os=10.0.20348
   • artifacts will be published  reason=tag is defined tag=v1.1.39
   • loaded configuration  file=D:\a\gfys\gfys\build\electron-builder.ci.yml
@@ -452,11 +452,11 @@ drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:46 obs-bridge
   • completed installing native dependencies
   • packaging       platform=win32 arch=x64 electron=33.4.11 appOutDir=dist\win-unpacked
   • downloading     url=https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-win32-x64.zip size=115 MB parts=8
-  • downloaded      url=https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-win32-x64.zip duration=694ms
+  • downloaded      url=https://github.com/electron/electron/releases/download/v33.4.11/electron-v33.4.11-win32-x64.zip duration=417ms
   • updating asar integrity executable resource  executablePath=dist\win-unpacked\港丰影视直播工作台.exe
   • default Electron icon is used  reason=application icon is not set
   • downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
-  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=359ms
+  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=241ms
   • signing with signtool.exe  path=dist\win-unpacked\港丰影视直播工作台.exe
   • no signing info identified, signing is skipped  signHook=false cscInfo=null
   • building        target=zip arch=x64 file=dist\港丰影视直播工作台-1.1.39-win.zip
@@ -464,19 +464,20 @@ drwxr-xr-x 1 runneradmin 197121         0 Oct  1 08:46 obs-bridge
   • building        target=nsis file=dist\港丰影视直播工作台 Setup 1.1.39.exe archs=x64 oneClick=false perMachine=false
   • uploading       file=tencent-live-workbench-1.1.39-win.zip provider=github
   • downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis-3.0.4.1/nsis-3.0.4.1.7z size=1.3 MB parts=1
-  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis-3.0.4.1/nsis-3.0.4.1.7z duration=265ms
+  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis-3.0.4.1/nsis-3.0.4.1.7z duration=133ms
+  • GitHub release not created  reason=existing type not compatible with publishing type tag=v1.1.39 version=1.1.39 existingType=release publishingType=draft
+  • skipped publishing  file=tencent-live-workbench-1.1.39-win.zip reason=existing type not compatible with publishing type tag=v1.1.39 version=1.1.39 existingType=release publishingType=draft
   • signing with signtool.exe  path=dist\win-unpacked\resources\elevate.exe
   • no signing info identified, signing is skipped  signHook=false cscInfo=null
-  • overwrite published file  file=tencent-live-workbench-1.1.39-win.zip reason=already exists on GitHub
   • downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis-resources-3.4.1/nsis-resources-3.4.1.7z size=731 kB parts=1
-  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis-resources-3.4.1/nsis-resources-3.4.1.7z duration=268ms
+  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis-resources-3.4.1/nsis-resources-3.4.1.7z duration=133ms
   • signing with signtool.exe  path=dist\__uninstaller-nsis-tencent-live-workbench.exe
   • no signing info identified, signing is skipped  signHook=false cscInfo=null
   • signing with signtool.exe  path=dist\港丰影视直播工作台 Setup 1.1.39.exe
   • no signing info identified, signing is skipped  signHook=false cscInfo=null
   • building block map  blockMapFile=dist\港丰影视直播工作台 Setup 1.1.39.exe.blockmap
   • uploading       file=tencent-live-workbench-setup-1.1.39.exe.blockmap provider=github
+  • skipped publishing  file=tencent-live-workbench-setup-1.1.39.exe.blockmap reason=existing type not compatible with publishing type tag=v1.1.39 version=1.1.39 existingType=release publishingType=draft
   • uploading       file=tencent-live-workbench-setup-1.1.39.exe provider=github
-  • overwrite published file  file=tencent-live-workbench-setup-1.1.39.exe reason=already exists on GitHub
-  • overwrite published file  file=tencent-live-workbench-setup-1.1.39.exe.blockmap reason=already exists on GitHub
-  • overwrite published file  file=latest.yml reason=already exists on GitHub
+  • skipped publishing  file=tencent-live-workbench-setup-1.1.39.exe reason=existing type not compatible with publishing type tag=v1.1.39 version=1.1.39 existingType=release publishingType=draft
+  • skipped publishing  file=latest.yml reason=existing type not compatible with publishing type tag=v1.1.39 version=1.1.39 existingType=release publishingType=draft
