@@ -57,6 +57,16 @@ if ($content -match 'if\(CMAKE_SIZEOF_VOID_P EQUAL 8\)') {
   Write-Host "==> patched defaults.cmake (skip Win32 sub-configure)"
 }
 
+# 2.6) patch: skip graphics-hook (game capture). It requires the Vulkan SDK shader compilers
+#      (glslc / glslangValidator) which are NOT in obs-deps. We only need monitor capture.
+$wc = Join-Path $OBS "plugins\win-capture\CMakeLists.txt"
+$wcContent = Get-Content $wc -Raw
+if ($wcContent -match 'add_subdirectory\(graphics-hook\)') {
+  $wcContent = $wcContent -replace 'add_subdirectory\(graphics-hook\)', '# add_subdirectory(graphics-hook) disabled: needs Vulkan SDK'
+  Set-Content -Path $wc -Value $wcContent -NoNewline
+  Write-Host "==> patched win-capture (skip graphics-hook)"
+}
+
 # 3) cmake configure
 Write-Host "==> cmake configure"
 $cmakeOutput = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
@@ -82,10 +92,15 @@ $cmakeLines = @($cmakeOutput | ForEach-Object { $_.ToString() })
 
 if ($cmakeCode -ne 0) {
   Write-Host "::error::cmake configure failed (exit $cmakeCode)"
-  # error-matching lines (broader pattern)
-  $cmakeLines | Where-Object { $_ -match "CMake Error|FATAL|fatal|error:|Could NOT|not found|missing|Unable|No such" } | Select-Object -Last 20 | ForEach-Object { Write-Host "::error::[err] $_" }
-  # last 20 lines for context
-  $cmakeLines | Select-Object -Last 20 | ForEach-Object { Write-Host "::error::[last] $_" }
+  # print each "CMake Error" line plus the next 3 lines (the error description)
+  for ($i = 0; $i -lt $cmakeLines.Count; $i++) {
+    if ($cmakeLines[$i] -match "CMake Error") {
+      Write-Host "::error::[err] $($cmakeLines[$i])"
+      for ($j = 1; $j -le 3; $j++) {
+        if ($i + $j -lt $cmakeLines.Count) { Write-Host "::error::[ctx] $($cmakeLines[$i + $j])" }
+      }
+    }
+  }
   exit 1
 }
 
