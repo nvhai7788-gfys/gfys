@@ -227,7 +227,7 @@
     color: var(--text2); font-size: 15.5px; border: none; background: none; text-align: left; width: 100%;
     line-height: 1.35;
   }
-  .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--ni, currentColor); }
   /* 长菜单名不换行、省略号截断（如「直播推流 · 本地录制」），避免侧栏被撑宽 */
   .nav-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-item:hover { background: rgba(61,123,253,.1); color: var(--text); }
@@ -613,7 +613,7 @@
       <div class="side-version" id="sideVersion">
         <span class="sv-dot"></span>
         <span class="sv-label">港丰影视</span>
-        <span class="sv-text" id="sideVerText">v1.1.43</span>
+        <span class="sv-text" id="sideVerText">v1.1.44</span>
       </div>
       <div style="display:flex;gap:6px;margin-bottom:10px">
         <button class="btn btn-sm btn-primary" id="provTencent" style="flex:1;justify-content:center">腾讯云</button>
@@ -1318,6 +1318,39 @@
             <span class="kv" id="lpStageSize" style="margin:0">画布 1920×1080</span>
           </div>
 
+          <!-- v1.1.44：素材/设备输入区融合进工作室（id 不变，自推流卡片搬入）——加入的素材自动出现在场景来源 -->
+          <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:10px;background:var(--card2)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:6px;flex-wrap:wrap">
+              <b style="font-size:12px;color:var(--text2)">📥 素材输入 <span style="font-weight:400;opacity:.75">— 加入后自动出现在下方场景来源</span></b>
+              <div style="display:flex;gap:14px;font-size:13px">
+                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400"><input type="radio" name="lpSrcType" value="file" checked> 本地素材</label>
+                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400"><input type="radio" name="lpSrcType" value="device"> 摄像头 / 采集设备</label>
+              </div>
+            </div>
+            <div id="lpFileBox">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <span style="font-size:12px;color:var(--text2)">素材列表（OBS 式播放列表，按顺序依次输出；移除时同步移除场景来源）</span>
+                <div style="display:flex;gap:6px">
+                  <button class="btn btn-sm" id="lpMediaAddBtn">➕ 添加素材</button>
+                  <button class="btn btn-sm" id="lpMediaClearBtn">🗑 清空</button>
+                </div>
+              </div>
+              <div id="lpMediaList" style="border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;background:var(--card)"></div>
+            </div>
+            <div id="lpDeviceBox" style="display:none">
+              <div style="display:flex;gap:8px;align-items:center">
+                <label style="margin:0;width:60px;font-size:12px;color:var(--text2)">视频设备</label>
+                <select id="lpDeviceVideo" style="flex:1"><option value="">点击「扫描设备」获取</option></select>
+                <button class="btn btn-sm" id="lpScanDevBtn" style="flex-shrink:0">扫描设备</button>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                <label style="margin:0;width:60px;font-size:12px;color:var(--text2)">音频设备</label>
+                <select id="lpDeviceAudio" style="flex:1"><option value="">不采集音频</option></select>
+              </div>
+              <div class="kv" style="margin-top:6px">选择设备后自动添加 / 更新场景中的摄像头来源。macOS 需在「系统设置 → 隐私与安全性」允许相机 / 麦克风；Windows 使用 DirectShow 设备名</div>
+            </div>
+          </div>
+
           <!-- 来源 dock（Sources）：可见性 / 排序 / Transform，融合进工作室 -->
           <div style="display:flex;gap:6px;align-items:center;margin-top:8px">
             <b style="font-size:12px;color:var(--text2)">来源（Sources）</b>
@@ -1363,57 +1396,32 @@
             <button class="obs-tf-btn" data-zoom="1.5" title="150%">150%</button>
             <button class="obs-tf-btn" data-zoom="2.0" title="200%">200%</button>
           </div>
-          <div class="kv" style="margin-top:4px">场景已融合进工作室：上方切换场景、下方管理来源（题词 / 台标 / 水印）。PVM 预览窗即本地输入画面（素材 / 摄像头，点「开启采集预览」播放）+ OBS 场景叠加；<b>横竖屏</b>随场景自动切换（点「横屏/竖屏」或添加竖版素材自动切）。默认已开启<b>工作室模式</b>，左「PVM 预览」、右「PGM 输出」，点「转场到输出」把当前场景切到直播画面。推流质量图表已移至下方菜单之下。</div>
+          <div class="kv" style="margin-top:4px">工作室已融合排版：<b>📥 素材输入</b>就在 PVM/PGM 视窗正下方 —— 点「➕ 添加素材」选择视频 / 图片后<b>自动出现在下方场景来源</b>（无需再手动「添加来源」），移除素材同步移除来源；选摄像头设备自动添加摄像头来源。左「PVM 预览」、右「PGM 输出」，点「转场到输出」把当前场景切到直播画面。播放模式 / 码率 / 路数等推流参数见下方「⚙️ 推流设置」。</div>
         </div>
 
         <!-- 本地推流（r63 起整行显示，不再左右分栏） -->
+        <!-- v1.1.44：素材输入区已融合进上方工作室（PVM/PGM 下方），此处只留播放/编码/网络设置 -->
         <div class="card" style="margin-top:14px">
-            <h3 style="font-size:14px;margin-bottom:8px">📤 推流到直播（素材列表 / 采集设备）</h3>
-            <label>推流来源</label>
-            <div style="display:flex;gap:14px;margin:4px 0 8px;font-size:13px">
-              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400"><input type="radio" name="lpSrcType" value="file" checked> 本地视频素材</label>
-              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400"><input type="radio" name="lpSrcType" value="device"> 摄像头 / 采集设备</label>
-            </div>
-            <div id="lpFileBox">
-              <!-- r68：OBS 素材管理模式 —— 多文件播放列表，可增删/排序/切换当前输出 -->
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                <label style="margin:0">素材列表（OBS 式播放列表，按顺序依次输出）</label>
-                <div style="display:flex;gap:6px">
-                  <button class="btn btn-sm" id="lpMediaAddBtn">➕ 添加素材</button>
-                  <button class="btn btn-sm" id="lpMediaClearBtn">🗑 清空</button>
-                </div>
-              </div>
-              <div id="lpMediaList" style="border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto;background:var(--bg2)"></div>
-              <div class="form-row" style="margin-top:8px">
-                <div><label>播放模式</label>
+            <h3 style="font-size:14px;margin-bottom:8px">⚙️ 推流设置（播放模式 / 编码 / 网络）</h3>
+            <div class="form-row" style="margin-top:2px">
+              <div><label>播放模式</label>
                   <select id="lpPlayMode">
                     <option value="loop_all" selected>循环全部素材（播完从头再来）</option>
                     <option value="once">顺序播放一次后停止</option>
                     <option value="loop_one">单素材循环（只反复播当前项）</option>
                   </select>
-                </div>
-                <div style="display:flex;align-items:flex-end;gap:6px">
+              </div>
+              <div style="display:flex;align-items:flex-end;gap:6px">
                   <button class="btn btn-sm" id="lpMediaNextBtn" style="flex:1;justify-content:center" title="推流中可立即切换到下一个素材">⏭ 切换下一个</button>
-                </div>
               </div>
-              <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-weight:400">
-                <input type="checkbox" id="lpLoop" checked> 循环推流（与播放模式联动：单素材/全部循环时自动勾选）
-              </label>
-              <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:400">
-                <input type="checkbox" id="lpCopy"> 不转码直接推（-c copy，CPU 占用极低；要求素材为 H.264/AAC，码率超出上行会卡顿）
-              </label>
-              <div class="kv" style="margin-top:6px">多个素材将按列表顺序拼接输出（分辨率/帧率不一致时以首个素材为准，建议先统一规格）。推流中点击「切换下一个」可立即跳到下一素材</div>
             </div>
-            <div id="lpDeviceBox" style="display:none">
-              <label>视频设备</label>
-              <div style="display:flex;gap:8px">
-                <select id="lpDeviceVideo" style="flex:1"><option value="">点击「扫描设备」获取</option></select>
-                <button class="btn btn-sm" id="lpScanDevBtn" style="flex-shrink:0">扫描设备</button>
-              </div>
-              <label>音频设备</label>
-              <select id="lpDeviceAudio"><option value="">不采集音频</option></select>
-              <div class="kv" style="margin-top:6px">macOS 首次使用需在「系统设置 → 隐私与安全性 → 相机/麦克风」允许本应用；Windows 使用 DirectShow 设备名。分辨率 / 帧率由设备自动协商（兼容各型号采集卡），输出按下方设置归一化</div>
-            </div>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-weight:400">
+              <input type="checkbox" id="lpLoop" checked> 循环推流（与播放模式联动：单素材/全部循环时自动勾选）
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-weight:400">
+              <input type="checkbox" id="lpCopy"> 不转码直接推（-c copy，CPU 占用极低；要求素材为 H.264/AAC，码率超出上行会卡顿）
+            </label>
+            <div class="kv" style="margin-top:6px">多个素材将按列表顺序拼接输出（分辨率/帧率不一致时以首个素材为准，建议先统一规格）。推流中点击「切换下一个」可立即跳到下一素材。素材与设备已在上方工作室「📥 素材输入」中选择</div>
             <div class="form-row" style="margin-top:8px">
               <div><label>视频码率（可自定义输入）</label>
                 <input id="lpBitrate" list="lpBitrateList" value="2500k" placeholder="如 3500k，可输入任意码率">
@@ -2340,7 +2348,7 @@
 <div class="mask hidden" id="aboutMask" style="z-index:190">
   <div class="modal" style="width:640px">
     <h3>关于与免责声明</h3>
-    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.43</span></div>
+    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.44</span></div>
     <div class="about-scroll">
       <div class="about-sec">
         <h4>一、免责声明</h4>
@@ -3541,6 +3549,25 @@ function refreshTasks() {
 // ===========================================================================
 // 事件与初始化
 // ===========================================================================
+// v1.1.44：侧边栏彩色虚拟 UI 图标 —— 每个功能菜单一个主题色（对齐参考图风格）。
+// CSS 侧 .nav-item svg { color: var(--ni, currentColor) }，激活态仍为白色高亮。
+var NAV_ICON_COLORS = {
+  overview: '#34d399', charts: '#3d7bfd',
+  monitor: '#f87171', watch: '#22d3ee', quality: '#fbbf24',
+  domains: '#a78bfa', relay: '#3d7bfd', genaddr: '#34d399', templates: '#fbbf24',
+  localpush: '#f87171', localrec: '#a78bfa',
+  caster: '#22d3ee', room: '#34d399',
+  package: '#3d7bfd', servers: '#a78bfa', nodes: '#22d3ee',
+  notify: '#fbbf24', rules: '#f87171', users: '#34d399', apidoc: '#3d7bfd',
+  settings: '#8fa1c4'
+};
+document.querySelectorAll('.nav-item[data-view]').forEach(function (b) {
+  var c = NAV_ICON_COLORS[b.getAttribute('data-view')];
+  if (c) b.style.setProperty('--ni', c);
+});
+var _aboutBtn = document.getElementById('aboutBtn');
+if (_aboutBtn) _aboutBtn.style.setProperty('--ni', '#a78bfa');
+
 // 侧边导航
 document.querySelectorAll('.nav-item').forEach(function (btn) {
   btn.addEventListener('click', function () {
@@ -9050,6 +9077,75 @@ document.getElementById('lpTfBar').addEventListener('click', function (e) {
 // ---------- r68：OBS 素材管理模式（多文件播放列表） ----------
 var lpMedia = [];        // [{ path, name }]
 var lpMediaCur = 0;      // 当前输出素材下标
+
+// v1.1.44：素材 ⇄ 场景来源自动联动 —— 加入的素材自动出现在场景，无需手动「添加来源」。
+// 视频/音频 → ffmpeg_source（settings.local_file）；图片 → image_source（settings.file）。
+// 同场景同路径同类型已存在时跳过（幂等）。
+function lpIsImagePath(p) { return /\.(png|jpe?g|bmp|gif|webp|tiff|svg)$/i.test(String(p || '').replace(/\\/g, '/').split('?')[0]); }
+function lpSceneAutoAddSource(path) {
+  if (!path || !window.SE) return null;
+  var isImg = lpIsImagePath(path);
+  var typeId = isImg ? 'image_source' : 'ffmpeg_source';
+  var skey = isImg ? 'file' : 'local_file';
+  var sc = SE.activeScene();
+  if (!sc) return null;
+  var norm = String(path).replace(/\\/g, '/');
+  for (var i = 0; i < sc.sources.length; i++) {
+    var s0 = sc.sources[i];
+    if (s0.type === typeId && s0.settings && String(s0.settings[skey] || '').replace(/\\/g, '/') === norm) return s0; // 已存在
+  }
+  var s = SE.addSource(typeId);
+  if (!s) return null;
+  s.settings[skey] = path;
+  if (typeId === 'ffmpeg_source') s.settings.is_local_file = true;
+  // 名称用文件名，OBS 同款（来源名 = 素材名）
+  s.name = String(path).replace(/\\/g, '/').split('/').pop() || s.name;
+  lpSaveScenes();
+  lpRenderSources(); lpRenderOverlays();
+  return s;
+}
+// 素材移除 → 同步移除场景中对应来源（保持「素材列表 = 场景来源」单一事实源）
+function lpSceneAutoRemoveSource(path) {
+  if (!path || !window.SE) return;
+  var isImg = lpIsImagePath(path);
+  var typeId = isImg ? 'image_source' : 'ffmpeg_source';
+  var skey = isImg ? 'file' : 'local_file';
+  var norm = String(path).replace(/\\/g, '/');
+  var sc = SE.activeScene();
+  if (!sc) return;
+  for (var i = sc.sources.length - 1; i >= 0; i--) {
+    var s0 = sc.sources[i];
+    if (s0.type === typeId && s0.settings && String(s0.settings[skey] || '').replace(/\\/g, '/') === norm) {
+      SE.removeSource(i);
+    }
+  }
+  lpSaveScenes();
+  lpRenderSources(); lpRenderOverlays();
+}
+// v1.1.44：摄像头设备选择 → 自动添加/更新场景中的 av_capture_input 来源（只保留一个）
+function lpSceneSyncDeviceSource(deviceVal, audioVal) {
+  if (!window.SE) return;
+  var sc = SE.activeScene();
+  if (!sc) return;
+  var found = -1;
+  for (var i = 0; i < sc.sources.length; i++) {
+    if (sc.sources[i].type === 'av_capture_input') { found = i; break; }
+  }
+  if (!deviceVal) return;           // 未选设备不动来源
+  if (found < 0) {
+    var s = SE.addSource('av_capture_input');
+    if (!s) return;
+    s.settings.device = deviceVal;
+    s.name = '摄像头 ' + (String(deviceVal).replace(/\\/g, '/').split('/').pop() || '');
+    lpSelSrc = sc.sources.length - 1;
+  } else {
+    sc.sources[found].settings.device = deviceVal;
+    lpSelSrc = found;
+  }
+  lpSaveScenes();
+  lpRenderSources(); lpRenderOverlays();
+}
+
 function lpMediaRender() {
   var box = $('lpMediaList');
   if (!box) return;
@@ -9078,6 +9174,8 @@ function lpMediaAdd(path) {
   lpMedia.push({ path: path, name: path.replace(/\\/g, '/').split('/').pop() });
   if (lpMedia.length === 1) lpMediaCur = 0;
   lpMediaRender();
+  // v1.1.44：素材自动入场景（视频→媒体源 / 图片→图片源，同路径幂等）
+  lpSceneAutoAddSource(path);
 }
 // 当前输出素材（推流起点）
 function lpCurFile() {
@@ -9127,7 +9225,11 @@ $('lpMediaAddBtn').addEventListener('click', function () {
 });
 $('lpMediaClearBtn').addEventListener('click', function () {
   if (!lpMedia.length) return;
+  var olds = lpMedia.map(function (m) { return m.path; });
   lpMedia = []; lpMediaCur = 0; lpMediaRender();
+  // v1.1.44：清空素材 → 同步移除场景中对应来源
+  olds.forEach(function (p) { lpSceneAutoRemoveSource(p); });
+  toast('素材列表已清空（场景中对应来源已同步移除）');
 });
 $('lpMediaNextBtn').addEventListener('click', function () {
   if (lpPushIds.length) {
@@ -9156,8 +9258,11 @@ $('lpMediaList').addEventListener('click', function (e) {
   var i = Number(btn.dataset.idx);
   var act = btn.dataset.mact;
   if (act === 'del') {
+    var rmPath = lpMedia[i] && lpMedia[i].path;
     lpMedia.splice(i, 1);
     if (lpMediaCur >= lpMedia.length) lpMediaCur = Math.max(0, lpMedia.length - 1);
+    // v1.1.44：素材移除 → 同步移除场景中对应来源
+    if (rmPath) lpSceneAutoRemoveSource(rmPath);
   } else if (act === 'up' && i > 0) {
     var t = lpMedia[i]; lpMedia[i] = lpMedia[i - 1]; lpMedia[i - 1] = t;
     if (lpMediaCur === i) lpMediaCur = i - 1; else if (lpMediaCur === i - 1) lpMediaCur = i;
@@ -9251,7 +9356,8 @@ $('lpScanDevBtn').addEventListener('click', function () {
       if (first) {
         $('lpDeviceVideo').value = String(first.index);
         $('lpRecDeviceVideo').value = String(first.index);
-        lpAutoPreview();
+        // v1.1.44：扫描后自动选中 → 走统一 change 联动（自动入场景 + 预览），与手动选择行为一致
+        try { lpOnDeviceVideoChange(); } catch (e) { /* */ }
       }
     }
   });
@@ -9293,7 +9399,26 @@ function lpStopRecPreview() {
   try { v.pause(); } catch (e) { /* */ }
   v.srcObject = null;
 }
-$('lpDeviceVideo').addEventListener('change', function () { if (this.value) lpAutoPreview(); });
+// v1.1.44：设备选择统一联动入口（手动 change / 扫描后自动选中共用）
+function lpOnDeviceVideoChange() {
+  var sel = $('lpDeviceVideo');
+  if (!sel || !sel.value) return;
+  // 摄像头设备选择 → 自动添加/更新场景中的摄像头来源（含音频设备串）。
+  // 先做联动（纯数据操作），再触发预览——预览依赖 mediaDevices/GPU，异常时不应拖累来源联动。
+  // 平台判断用 navigator.platform（渲染层主 world 无 process）
+  var isDarwin = /Mac/i.test(navigator.platform || '');
+  var devNames2 = (typeof devNames !== 'undefined') ? devNames : (window._lpDevNames || {});
+  var dv = devNames2['v' + sel.value] || ((sel.selectedOptions && sel.selectedOptions[0] && sel.selectedOptions[0].getAttribute('data-name')) || '');
+  var daSel = $('lpDeviceAudio');
+  var daIdx = daSel ? daSel.value : '';
+  var da = daIdx ? (devNames2['a' + daIdx] || ((daSel.selectedOptions && daSel.selectedOptions[0] && daSel.selectedOptions[0].getAttribute('data-name')) || daIdx)) : '';
+  var devStr = isDarwin
+    ? (sel.value + (daIdx ? ':' + daIdx : ''))
+    : (dv ? ('video=' + dv + (da ? ':audio=' + da : '')) : '');
+  lpSceneSyncDeviceSource(devStr || sel.value, da);
+  try { lpAutoPreview(); } catch (e) { /* 预览环境不可用时不影响联动 */ }
+}
+$('lpDeviceVideo').addEventListener('change', lpOnDeviceVideoChange);
 $('lpRecDeviceVideo').addEventListener('change', function () { if (this.value) lpAutoPreview(); });
 // 录制来源切换：拉流地址 / 外接采集设备
 document.querySelectorAll('input[name="lpRecSrc"]').forEach(function (r) {
@@ -10253,6 +10378,11 @@ function lpOpenPreview() {
     v.play().catch(function () { /* 自动播放被拦截时用户手动点播放 */ });
   } else {
     // 设备预览：按扫描到的设备名匹配 deviceId，匹配不到用默认摄像头
+    // v1.1.44：mediaDevices 不可用（旧环境/权限禁用/自动化测试）时优雅提示，不抛异常
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('当前环境不支持本地摄像头预览（mediaDevices 不可用），推流仍可正常进行', true);
+      return;
+    }
     var wantName = ($('lpDeviceVideo') || {}).selectedOptions ? ($('lpDeviceVideo').selectedOptions[0] || {}).label || '' : '';
     var constraints = { video: true, audio: false };
     navigator.mediaDevices.enumerateDevices().then(function (devs) {
@@ -11972,7 +12102,7 @@ document.addEventListener('DOMContentLoaded', function () {
 // 版本号显示（登录页徽标 / 设置页），版本来自 package.json（electron app.getVersion）
 (function initVerBadge() {
   try {
-    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.43');
+    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.44');
     var lv = document.getElementById('loginVer'); if (lv) lv.textContent = ver;
     var sv = document.getElementById('stVer'); if (sv) sv.textContent = ver;
     var sv2 = document.getElementById('sideVerText'); if (sv2) sv2.textContent = ver;
