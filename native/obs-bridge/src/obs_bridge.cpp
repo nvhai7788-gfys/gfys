@@ -386,8 +386,9 @@ static napi_value EnumDevices(napi_env env, napi_callback_info info) {
   if (prop) {
     size_t n = obs_property_list_item_count(prop);
     for (size_t i = 0; i < n; i++) {
-      const char* val = nullptr; const char* label = nullptr;
-      obs_property_list_item_string(prop, i, &val, &label);
+      // obs-studio 30.2.3 API: 两参返回 const char*（string=value，name=label）
+      const char* val = obs_property_list_item_string(prop, i);
+      const char* label = obs_property_list_item_name(prop, i);
       napi_value obj; napi_create_object(env, &obj);
       napi_value v, l;
       napi_create_string_utf8(env, val ? val : "", NAPI_AUTO_LENGTH, &v);
