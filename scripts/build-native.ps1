@@ -38,7 +38,8 @@ if (-not $?) { Write-Host "::error::Push-Location failed"; exit 1 }
 
 # 2) submodule init
 Write-Host "==> submodule init"
-git submodule update --init --depth 1 plugins/win-dshow/libdshowcapture
+# --recursive: libdshowcapture has a nested submodule (external/capture-device-support) needed by win-dshow
+git submodule update --init --recursive --depth 1 plugins/win-dshow/libdshowcapture
 if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule libdshowcapture failed (exit $LASTEXITCODE)"; exit 1 }
 git submodule update --init --depth 1 plugins/obs-outputs/ftl-sdk
 if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule ftl-sdk failed (exit $LASTEXITCODE)"; exit 1 }
