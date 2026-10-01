@@ -105,6 +105,27 @@ jobs:
         env:
           OBS_VER: ${{ env.OBS_VER }}
 
+      # ---------- 内置 ffmpeg（推流/录制依赖） ----------
+      - name: 获取 ffmpeg（macOS）
+        if: matrix.target == 'mac'
+        run: |
+          brew install ffmpeg
+          bash scripts/fetch-ffmpeg.sh 2>&1 | tee ci-last-build-mac.log
+
+      - name: 获取 ffmpeg（Windows）
+        if: matrix.target == 'win'
+        shell: bash
+        run: bash scripts/fetch-ffmpeg.sh 2>&1 | tee -a ci-last-build-win.log
+
+      # ---------- 打包安装包（含 libobs 原生桥接） ----------
+      - name: 打包安装包
+        shell: bash
+        run: npx electron-builder --config build/electron-builder.ci.yml ${{ matrix.eb_flags }} 2>&1 | tee -a ci-last-build-win.log
+        env:
+          # 不打签名：identity 已在配置中置 null
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # ---------- 回传编译日志（调试用：沙箱 agent 无法读 CI 日志，靠此突破） ----------
       - name: 回传编译日志
         if: always() && matrix.target == 'win'
@@ -120,25 +141,6 @@ jobs:
             git push origin HEAD:main || true
           fi
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ---------- 内置 ffmpeg（推流/录制依赖） ----------
-      - name: 获取 ffmpeg（macOS）
-        if: matrix.target == 'mac'
-        run: |
-          brew install ffmpeg
-          bash scripts/fetch-ffmpeg.sh
-
-      - name: 获取 ffmpeg（Windows）
-        if: matrix.target == 'win'
-        run: bash scripts/fetch-ffmpeg.sh
-
-      # ---------- 打包安装包（含 libobs 原生桥接） ----------
-      - name: 打包安装包
-        run: npx electron-builder --config build/electron-builder.ci.yml ${{ matrix.eb_flags }}
-        env:
-          # 不打签名：identity 已在配置中置 null
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ---------- 上传产物 ----------
