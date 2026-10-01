@@ -1,13 +1,14 @@
 # build-native.ps1 —— Windows 编译 libobs（obs-studio）+ obs-bridge 原生桥接
 #
-# 关键：用 -DOBS_CMAKE_VERSION=3.0.0 走新构建系统（configure 自动下载 obs-deps），
-#       关 UI/浏览器/脚本，避免引入 Qt 与 CEF。
-# 每步失败都通过 ::error 输出具体错误（供 check-run annotations API 读取定位）。
+# 关键：用 -DOBS_CMAKE_VERSION=3.0.0 走新构建系统（configure 自动下载 obs-deps），关 UI/浏览器/脚本。
+# 注意：不能用 $ErrorActionPreference="Stop" + "2>&1" 捕获——原生命令的 stderr（如 git 进度）
+#       会被包装成 ErrorRecord 触发 Stop 导致脚本在 clone 阶段就中断。
+#       这里用 "Continue" + 每个外部命令后检查 $LASTEXITCODE，失败输出 ::error 再 exit。
 param(
   [string]$OBS_VER = "30.2.3"
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $SRC = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $TP = Join-Path $SRC "third_party"
 $OBS = Join-Path $TP "obs-studio"
@@ -19,55 +20,36 @@ New-Item -ItemType Directory -Force -Path $TP | Out-Null
 # 1) clone obs-studio
 if (-not (Test-Path (Join-Path $OBS ".git"))) {
   Write-Host "==> git clone obs-studio $OBS_VER"
-  $o = & git clone --depth 1 --branch $OBS_VER https://github.com/obsproject/obs-studio.git $OBS 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    Write-Host "::error::git clone 失败 (exit $LASTEXITCODE)"
-    @($o) | Select-Object -Last 10 | ForEach-Object { Write-Host $_ }
-    exit 1
-  }
+  git clone --depth 1 --branch $OBS_VER https://github.com/obsproject/obs-studio.git $OBS
+  if ($LASTEXITCODE -ne 0) { Write-Host "::error::git clone 失败 (exit $LASTEXITCODE)"; exit 1 }
 }
 
 Push-Location $OBS
+if (-not $?) { Write-Host "::error::Push-Location $OBS 失败"; exit 1 }
 
 # 2) submodule
 Write-Host "==> submodule init"
-$o = & git submodule update --init --depth 1 plugins/win-dshow/libdshowcapture 2>&1
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "::error::submodule libdshowcapture 失败 (exit $LASTEXITCODE)"
-  @($o) | Select-Object -Last 10 | ForEach-Object { Write-Host $_ }
-  exit 1
-}
-$o = & git submodule update --init --depth 1 plugins/obs-outputs/ftl-sdk 2>&1
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "::error::submodule ftl-sdk 失败 (exit $LASTEXITCODE)"
-  @($o) | Select-Object -Last 10 | ForEach-Object { Write-Host $_ }
-  exit 1
-}
+git submodule update --init --depth 1 plugins/win-dshow/libdshowcapture
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule libdshowcapture 失败 (exit $LASTEXITCODE)"; exit 1 }
+git submodule update --init --depth 1 plugins/obs-outputs/ftl-sdk
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule ftl-sdk 失败 (exit $LASTEXITCODE)"; exit 1 }
 
 # 3) cmake configure
 Write-Host "==> cmake configure"
-$o = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
+cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
   -DOBS_CMAKE_VERSION=3.0.0 `
   -DENABLE_UI=OFF `
   -DENABLE_BROWSER=OFF `
   -DENABLE_SCRIPTING=OFF `
-  -DENABLE_HEVC=OFF 2>&1
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "::error::cmake configure 失败 (exit $LASTEXITCODE)"
-  @($o) | Select-Object -Last 30 | ForEach-Object { Write-Host $_ }
-  exit 1
-}
+  -DENABLE_HEVC=OFF
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::cmake configure 失败 (exit $LASTEXITCODE)"; exit 1 }
 
 # 4) cmake build
 Write-Host "==> cmake build libobs + plugins"
-$o = & cmake --build $BUILD --config Release --parallel --target `
+cmake --build $BUILD --config Release --parallel --target `
   libobs obs-x264 obs-ffmpeg obs-outputs obs-transitions obs-filters `
-  win-dshow win-capture win-wasapi win-mf 2>&1
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "::error::cmake build 失败 (exit $LASTEXITCODE)"
-  @($o) | Select-Object -Last 30 | ForEach-Object { Write-Host $_ }
-  exit 1
-}
+  win-dshow win-capture win-wasapi win-mf
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::cmake build 失败 (exit $LASTEXITCODE)"; exit 1 }
 
 Pop-Location
 
@@ -77,12 +59,8 @@ Push-Location (Join-Path $SRC "native\obs-bridge")
 $env:OBS_INCLUDE_DIR = Join-Path $OBS "libobs"
 $env:OBS_LIB_DIR = Join-Path $BUILD "libobs\Release"
 $env:OBS_MODULE_DIR = $BUILD
-$o = & npx node-gyp rebuild 2>&1
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "::error::node-gyp rebuild 失败 (exit $LASTEXITCODE)"
-  @($o) | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
-  exit 1
-}
+npx node-gyp rebuild
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::node-gyp rebuild 失败 (exit $LASTEXITCODE)"; exit 1 }
 Pop-Location
 
 # 6) 落盘到 bin/
