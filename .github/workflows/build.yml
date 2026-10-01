@@ -19,9 +19,9 @@ on:
     tags:
       - 'v*'
 
-# 允许 GITHUB_TOKEN 回推编译日志到 main（调试用，沙箱 agent 靠此读 CI 完整日志）
+# 权限：build 只读仓库即可（不再回传日志，避免多 job 并发 push 冲突）
 permissions:
-  contents: write
+  contents: read
 
 env:
   OBS_VER: "30.2.3"
@@ -128,23 +128,6 @@ jobs:
         env:
           # 不打签名：identity 已在配置中置 null
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ---------- 回传编译日志（调试用：沙箱 agent 无法读 CI 日志，靠此突破） ----------
-      - name: 回传编译日志
-        if: always()
-        shell: bash
-        run: |
-          git config user.name "ci-bot"
-          git config user.email "ci@localhost"
-          if ls ci-last-build-${{ matrix.target }}.log >/dev/null 2>&1; then
-            git fetch origin main
-            git checkout -B ci-log origin/main
-            git add -f ci-last-build-${{ matrix.target }}.log
-            git commit -m "ci: ${{ matrix.target }} build log $(date +%s)" || true
-            git push origin HEAD:main || true
-          fi
-        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ---------- 上传产物 ----------
