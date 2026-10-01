@@ -120,7 +120,7 @@ if ($cmakeCode -ne 0) {
 Write-Host "==> cmake build libobs + plugins"
 cmake --build $BUILD --config Release --parallel --target `
   libobs obs-x264 obs-ffmpeg obs-outputs obs-transitions obs-filters `
-  win-dshow win-capture win-wasapi win-mf
+  win-dshow win-capture win-wasapi
 if ($LASTEXITCODE -ne 0) { Write-Host "::error::cmake build failed (exit $LASTEXITCODE)"; exit 1 }
 
 Pop-Location
