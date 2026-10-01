@@ -59,9 +59,7 @@ if ($content -match 'if\(CMAKE_SIZEOF_VOID_P EQUAL 8\)') {
 
 # 3) cmake configure
 Write-Host "==> cmake configure"
-$cmakeOutLog = Join-Path $SRC "cmake-out.log"
-$cmakeErrLog = Join-Path $SRC "cmake-err.log"
-& cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
+$cmakeAll = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
   -DOBS_CMAKE_VERSION=3.0.0 `
   -DENABLE_UI=OFF `
   -DENABLE_BROWSER=OFF `
@@ -76,26 +74,22 @@ $cmakeErrLog = Join-Path $SRC "cmake-err.log"
   -DENABLE_NVAFX=OFF `
   -DENABLE_NVVFX=OFF `
   -DENABLE_RNNOISE=OFF `
-  -DENABLE_SPEEXDSP=OFF 1>$cmakeOutLog 2>$cmakeErrLog
+  -DENABLE_SPEEXDSP=OFF 2>&1 | Out-String
 $cmakeCode = $LASTEXITCODE
 
 # Echo actual values of key switches from CMakeCache.txt (verify -D flags took effect)
 $cacheFile = Join-Path $BUILD "CMakeCache.txt"
 if (Test-Path $cacheFile) {
-  Write-Host "==> key switch values from CMakeCache.txt:"
-  Select-String -Path $cacheFile -Pattern "^(ENABLE_UI|ENABLE_BROWSER|ENABLE_RNNOISE|ENABLE_SPEEXDSP|ENABLE_NVAFX|ENABLE_NVVFX|ENABLE_AJA|ENABLE_WEBRTC|ENABLE_SCRIPTING|ENABLE_HEVC):" | ForEach-Object { Write-Host "::error::[cache] $($_.Line)" }
+  Select-String -Path $cacheFile -Pattern "^(ENABLE_UI|ENABLE_BROWSER|ENABLE_RNNOISE|ENABLE_SPEEXDSP|ENABLE_NVAFX|ENABLE_NVVFX|ENABLE_AJA|ENABLE_WEBRTC):" | ForEach-Object { Write-Host "::error::[cache] $($_.Line)" }
 }
 
 if ($cmakeCode -ne 0) {
   Write-Host "::error::cmake configure failed (exit $cmakeCode)"
-  if (Test-Path $cmakeErrLog) {
-    # dump error lines WITH context (3 lines before/after) so we see the actual CMake Error + location
-    Select-String -Path $cmakeErrLog -Pattern "CMake Error|FATAL|fatal error|error:" -Context 2,4 | Select-Object -Last 15 | ForEach-Object { Write-Host "::error::[err] $($_.Line)" }
-    Get-Content $cmakeErrLog -Tail 50 | ForEach-Object { Write-Host "::error::[stderr] $_" }
-  }
-  if (Test-Path $cmakeOutLog) {
-    Get-Content $cmakeOutLog -Tail 20 | ForEach-Object { Write-Host "::error::[stdout] $_" }
-  }
+  $lines = $cmakeAll -split "`r?`n"
+  # dump error lines from the FULL output
+  $lines | Where-Object { $_ -match "CMake Error|FATAL|fatal error|error:|Could NOT|not found|missing" } | Select-Object -Last 25 | ForEach-Object { Write-Host "::error::[err] $_" }
+  # dump last 60 lines
+  $lines | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -Last 60 | ForEach-Object { Write-Host "::error::[tail] $_" }
   exit 1
 }
 
