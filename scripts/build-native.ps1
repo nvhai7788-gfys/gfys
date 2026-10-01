@@ -137,7 +137,7 @@ $gypOutput = & npx node-gyp rebuild 2>&1
 $gypCode = $LASTEXITCODE
 if ($gypCode -ne 0) {
   Write-Host "::error::node-gyp rebuild failed (exit $gypCode)"
-  @($gypOutput | ForEach-Object { $_.ToString() }) | Select-Object -Last 40 | ForEach-Object { Write-Host "::error::[gyp] $_" }
+  @($gypOutput | ForEach-Object { $_.ToString() }) | Where-Object { $_ -match "gyp ERR|Traceback|Error|error|ModuleNotFound|Undefined|Exception|No module" } | Select-Object -Last 12 | ForEach-Object { Write-Host "::error::[gyp] $_" }
   exit 1
 }
 Pop-Location
