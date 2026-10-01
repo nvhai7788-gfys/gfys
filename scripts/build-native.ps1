@@ -36,6 +36,10 @@ cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
   -DENABLE_BROWSER=OFF `
   -DENABLE_SCRIPTING=OFF `
   -DENABLE_HEVC=OFF
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "::error::cmake configure 失败 (exit $LASTEXITCODE)"
+  exit $LASTEXITCODE
+}
 
 # 4) 只编译需要的 target（libobs + 编码/输出/采集插件）
 cmake --build $BUILD --config Release --parallel --target `

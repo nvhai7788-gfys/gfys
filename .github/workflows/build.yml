@@ -89,6 +89,7 @@ jobs:
       # ---------- 回传编译日志（调试用：沙箱 agent 无法读 CI 日志，靠此突破） ----------
       - name: 回传编译日志
         if: always() && matrix.target == 'win'
+        shell: bash
         run: |
           git config user.name "ci-bot"
           git config user.email "ci@localhost"
