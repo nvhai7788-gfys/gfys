@@ -65,10 +65,11 @@ jobs:
           mapfile -t DMG_ARM < <(find dist -type f -name '*-arm64.dmg' ! -name '*.blockmap' | sort)
           mapfile -t DMG_X64 < <(find dist -type f -name '*.dmg' ! -name '*-arm64.dmg' ! -name '*.blockmap' | sort)
           echo "EXES=${#EXES[@]} ZIPS=${#ZIPS[@]} DMG_ARM=${#DMG_ARM[@]} DMG_X64=${#DMG_X64[@]}"
-          if [ "${#EXES[@]}" -gt 0 ]; then cp "${EXES[0]}" "release/港丰影视直播工作台-${V}-win.exe"; fi
-          if [ "${#ZIPS[@]}" -gt 0 ]; then cp "${ZIPS[0]}" "release/港丰影视直播工作台-${V}-win.zip"; fi
-          if [ "${#DMG_ARM[@]}" -gt 0 ]; then cp "${DMG_ARM[0]}" "release/港丰影视直播工作台-${V}-arm64.dmg"; fi
-          if [ "${#DMG_X64[@]}" -gt 0 ]; then cp "${DMG_X64[0]}" "release/港丰影视直播工作台-${V}-x64.dmg"; fi
+          # 用英文前缀（GitHub 会规范化中文资产名导致前缀丢失）
+          if [ "${#EXES[@]}" -gt 0 ]; then cp "${EXES[0]}" "release/gangfeng-live-${V}-win.exe"; fi
+          if [ "${#ZIPS[@]}" -gt 0 ]; then cp "${ZIPS[0]}" "release/gangfeng-live-${V}-win.zip"; fi
+          if [ "${#DMG_ARM[@]}" -gt 0 ]; then cp "${DMG_ARM[0]}" "release/gangfeng-live-${V}-arm64.dmg"; fi
+          if [ "${#DMG_X64[@]}" -gt 0 ]; then cp "${DMG_X64[0]}" "release/gangfeng-live-${V}-x64.dmg"; fi
           echo "== 整理后的标准文件 =="
           ls -lh release/
 
