@@ -83,13 +83,15 @@ $cmakeCode = $LASTEXITCODE
 $cacheFile = Join-Path $BUILD "CMakeCache.txt"
 if (Test-Path $cacheFile) {
   Write-Host "==> key switch values from CMakeCache.txt:"
-  Select-String -Path $cacheFile -Pattern "^(ENABLE_UI|ENABLE_BROWSER|ENABLE_RNNOISE|ENABLE_SPEEXDSP|ENABLE_NVAFX|ENABLE_NVVFX|ENABLE_AJA|ENABLE_WEBRTC):" | ForEach-Object { Write-Host $_.Line }
+  Select-String -Path $cacheFile -Pattern "^(ENABLE_UI|ENABLE_BROWSER|ENABLE_RNNOISE|ENABLE_SPEEXDSP|ENABLE_NVAFX|ENABLE_NVVFX|ENABLE_AJA|ENABLE_WEBRTC|ENABLE_SCRIPTING|ENABLE_HEVC):" | ForEach-Object { Write-Host "::error::[cache] $($_.Line)" }
 }
 
 if ($cmakeCode -ne 0) {
   Write-Host "::error::cmake configure failed (exit $cmakeCode)"
   if (Test-Path $cmakeErrLog) {
-    Get-Content $cmakeErrLog -Tail 40 | ForEach-Object { Write-Host "::error::[stderr] $_" }
+    # dump error lines WITH context (3 lines before/after) so we see the actual CMake Error + location
+    Select-String -Path $cmakeErrLog -Pattern "CMake Error|FATAL|fatal error|error:" -Context 2,4 | Select-Object -Last 15 | ForEach-Object { Write-Host "::error::[err] $($_.Line)" }
+    Get-Content $cmakeErrLog -Tail 50 | ForEach-Object { Write-Host "::error::[stderr] $_" }
   }
   if (Test-Path $cmakeOutLog) {
     Get-Content $cmakeOutLog -Tail 20 | ForEach-Object { Write-Host "::error::[stdout] $_" }
