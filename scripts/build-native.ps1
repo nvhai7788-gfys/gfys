@@ -128,10 +128,14 @@ Pop-Location
 # 5) node-gyp build obs-bridge
 Write-Host "==> node-gyp build obs-bridge"
 Push-Location (Join-Path $SRC "native\obs-bridge")
-$env:OBS_INCLUDE_DIR = Join-Path $OBS "libobs"
-$env:OBS_LIB_DIR = Join-Path $BUILD "libobs\Release"
-$env:OBS_MODULE_DIR = $BUILD
-$env:OBS_DEPS_INCLUDE = Join-Path $OBS "deps"
+$env:OBS_INCLUDE_DIR = (Join-Path $OBS "libobs").Replace('\','/')
+$env:OBS_LIB_DIR = (Join-Path $BUILD "libobs\Release").Replace('\','/')
+$env:OBS_MODULE_DIR = $BUILD.Replace('\','/')
+$env:OBS_DEPS_INCLUDE = (Join-Path $OBS "deps").Replace('\','/')
+# IMPORTANT: node-gyp's bundled gyp does NOT read shell env vars. The <(OBS_*_DIR)>
+# references in binding.gyp must be supplied via GYP_DEFINES (space-separated name=value).
+# Use forward slashes so gyp's shlex.split does not eat the Windows backslashes.
+$env:GYP_DEFINES = "OBS_INCLUDE_DIR=$($env:OBS_INCLUDE_DIR) OBS_LIB_DIR=$($env:OBS_LIB_DIR) OBS_MODULE_DIR=$($env:OBS_MODULE_DIR) OBS_DEPS_INCLUDE=$($env:OBS_DEPS_INCLUDE)"
 # node-gyp needs distutils (removed in Python 3.12+); setup-python@v5 provides Python 3.11 in CI
 $gypOutput = & npx node-gyp rebuild 2>&1
 $gypCode = $LASTEXITCODE

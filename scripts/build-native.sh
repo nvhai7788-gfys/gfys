@@ -51,9 +51,12 @@ cmake --build "$BUILD" --config Release --parallel --target \
 
 # 5) 编译 obs-bridge（node-gyp；npm install 已在 workflow 提前完成）
 cd "$SRC/native/obs-bridge"
-OBS_INCLUDE_DIR="$OBS/libobs" \
-OBS_LIB_DIR="$BUILD/libobs" \
-OBS_MODULE_DIR="$BUILD" \
+export OBS_INCLUDE_DIR="$OBS/libobs"
+export OBS_LIB_DIR="$BUILD/libobs"
+export OBS_MODULE_DIR="$BUILD"
+export OBS_DEPS_INCLUDE="$OBS/deps"
+# 注意：node-gyp 内置 gyp 不读 shell 环境变量，binding.gyp 的 <(OBS_*_DIR)> 必须经 GYP_DEFINES 传入。
+export GYP_DEFINES="OBS_INCLUDE_DIR=$OBS_INCLUDE_DIR OBS_LIB_DIR=$OBS_LIB_DIR OBS_MODULE_DIR=$OBS_MODULE_DIR OBS_DEPS_INCLUDE=$OBS_DEPS_INCLUDE"
 npx node-gyp rebuild
 
 # 6) 落盘到 bin/
