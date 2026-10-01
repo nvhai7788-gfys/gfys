@@ -27,14 +27,10 @@
         "NAPI_VERSION=8",
         "NAPI_DISABLE_CPP_EXCEPTIONS"
       ],
-      "libraries": [
-        "<(OBS_LIB_DIR)/obs.lib",
-        "<(OBS_LIB_DIR)/libobs.dylib",
-        "<(OBS_LIB_DIR)/libobs.so"
-      ],
       "cflags_cc": [ "-std=c++17", "-fexceptions" ],
       "conditions": [
         [ "OS=='win'", {
+          "libraries": [ "<(OBS_LIB_DIR)/obs.lib" ],
           "defines": [ "UNICODE", "_UNICODE", "WIN32_LEAN_AND_MEAN", "NOMINMAX" ],
           "msvs_settings": {
             "VCCLCompilerTool": {
@@ -45,12 +41,16 @@
           }
         }],
         [ "OS=='mac'", {
+          "libraries": [ "<(OBS_LIB_DIR)/libobs.dylib" ],
           "xcode_settings": {
             "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
             "CLANG_CXX_LANGUAGE_STANDARD": "c++17",
             "MACOSX_DEPLOYMENT_TARGET": "11.0",
             "OTHER_LDFLAGS": [ "-framework", "Cocoa", "-framework", "CoreVideo", "-framework", "CoreMedia", "-framework", "AVFoundation" ]
           }
+        }],
+        [ "OS=='linux'", {
+          "libraries": [ "<(OBS_LIB_DIR)/libobs.so" ]
         }]
       ]
     }

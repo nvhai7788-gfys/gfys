@@ -131,9 +131,15 @@ Push-Location (Join-Path $SRC "native\obs-bridge")
 $env:OBS_INCLUDE_DIR = Join-Path $OBS "libobs"
 $env:OBS_LIB_DIR = Join-Path $BUILD "libobs\Release"
 $env:OBS_MODULE_DIR = $BUILD
+$env:OBS_DEPS_INCLUDE = Join-Path $OBS "deps"
 # node-gyp needs distutils (removed in Python 3.12+); setup-python@v5 provides Python 3.11 in CI
-npx node-gyp rebuild
-if ($LASTEXITCODE -ne 0) { Write-Host "::error::node-gyp rebuild failed (exit $LASTEXITCODE)"; exit 1 }
+$gypOutput = & npx node-gyp rebuild 2>&1
+$gypCode = $LASTEXITCODE
+if ($gypCode -ne 0) {
+  Write-Host "::error::node-gyp rebuild failed (exit $gypCode)"
+  @($gypOutput | ForEach-Object { $_.ToString() }) | Select-Object -Last 40 | ForEach-Object { Write-Host "::error::[gyp] $_" }
+  exit 1
+}
 Pop-Location
 
 # 6) copy artifacts to bin/
