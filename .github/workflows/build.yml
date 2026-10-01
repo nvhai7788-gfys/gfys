@@ -124,13 +124,15 @@ jobs:
       # ---------- 打包安装包（含 libobs 原生桥接） ----------
       - name: 打包安装包
         shell: bash
-        run: npx electron-builder --config build/electron-builder.ci.yml ${{ matrix.eb_flags }} 2>&1 | tee -a ci-last-build-${{ matrix.target }}.log
+        run: npx electron-builder --publish never --config build/electron-builder.ci.yml ${{ matrix.eb_flags }} 2>&1 | tee -a ci-last-build-${{ matrix.target }}.log
         env:
           # 不打签名：identity 已在配置中置 null
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          # 注意：这里不设 GH_TOKEN——否则 electron-builder 检测到 tag 会尝试自动发布 GitHub release，
-          # 而本 job 的 permissions 是 contents: read，会 403 报「Cannot cleanup / Resource not
-          # accessible by integration」。发布 release 由独立的 release.yml（workflow_run 触发）负责。
+          # 关键：--publish never 显式禁止发布。electron-builder 在 tag 触发（getCiTag 命中 v*）
+          # 时若 publish 未显式设置，会自动进入 onTag 发布模式，并读取 GITHUB_TOKEN（GitHub
+          # 自动注入到每个 step、即使未显式设 GH_TOKEN）尝试创建 release —— 但本 job 权限是
+          # contents: read → 403「Resource not accessible by integration」，导致打包步骤 exit 1。
+          # 发布 release 由独立的 release.yml（workflow_run 触发，contents: write）负责。
 
       # ---------- 上传产物 ----------
       - name: 上传产物（macOS）
