@@ -1,0 +1,86 @@
+name: release
+
+# 港丰影视直播工作台 —— 发布 release
+#
+# 复用 build-libobs-installers 工作流已编译成功的安装包 artifacts（三平台），
+# 把它们发布为正式 GitHub release，无需重新编译。
+#
+# 手动触发（workflow_dispatch），或对 v* tag 的 push 自动触发。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+# 需要 contents: write 才能创建 release 并上传资产
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载 macOS arm64 安装包
+        uses: dawidd6/action-download-artifact@v27
+        with:
+          workflow: build.yml
+          workflow_conclusion: success
+          ref: v1.1.39
+          name: mac-arm64
+          path: dist
+          if_no_artifact_found: warn
+
+      - name: 下载 macOS x64 安装包
+        uses: dawidd6/action-download-artifact@v27
+        with:
+          workflow: build.yml
+          workflow_conclusion: success
+          ref: v1.1.39
+          name: mac-x64
+          path: dist
+          if_no_artifact_found: warn
+
+      - name: 下载 Windows x64 安装包
+        uses: dawidd6/action-download-artifact@v27
+        with:
+          workflow: build.yml
+          workflow_conclusion: success
+          ref: v1.1.39
+          name: win-x64
+          path: dist
+          if_no_artifact_found: warn
+
+      - name: 列出待发布文件
+        run: find dist -type f -printf '%s  %p\n' | sort -k2
+
+      - name: 发布 release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v1.1.39
+          name: 港丰影视直播工作台 v1.1.39
+          body: |
+            港丰影视直播工作台 v1.1.39 —— libobs 真引擎 + 三平台安装包
+
+            腾讯云/阿里云直播管理工作台（Electron 33），本版本接入 libobs 真引擎，
+            由 CI 从源码编译 obs-studio 30.2.3 + obs-bridge 原生桥接，并打包三平台安装包。
+
+            ## 安装包
+            - Windows x64：NSIS 安装包（Setup）+ 免安装 ZIP
+            - macOS arm64：DMG（Apple Silicon）
+            - macOS x64：DMG（Intel，交叉编译）
+
+            ## 说明
+            - libobs 真引擎：渲染器可选「用 libobs 真引擎推流」，原生桥接不可用时自动回退 ffmpeg
+            - 内置 ffmpeg：本地推流 / 录制免安装
+            - 安装包未签名（identity: null），交付前如需请自行签名 / 公证
+
+            ## 校验
+            - static_check / test_ffmpeg_args / e2e_r76 / e2e_r77 / e2e_r75 / test_libobs_engine 全绿
+          files: |
+            dist/**/*.dmg
+            dist/**/*.exe
+            dist/**/*.zip
+          draft: true
+          fail_on_unmatched_files: true
