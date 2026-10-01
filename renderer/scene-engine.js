@@ -1,6 +1,9 @@
 /*
  * scene-engine.js — OBS 场景/来源 引擎抽象层（v1.1.36 起）
  *
+ * 引用来源：场景 / 来源 / 属性 / 变换的数据模型对齐 OBS Studio 的来源系统（GPL-2.0，
+ * https://github.com/obsproject/obs-studio），仅学习其抽象与命名，非代码复制。见 THIRD_PARTY_NOTICES.md。
+ *
  * 设计目标：
  *  1) 引擎无关：本文件定义与 libobs / ffmpeg 都无关的「场景-来源-属性-变换」数据模型与 API。
  *  2) 1:1 还原 OBS 的来源属性系统：来源类型注册表（SOURCE_TYPES）+ 强类型属性描述符，
@@ -115,7 +118,11 @@
       name: src.name || '',
       enabled: src.enabled !== false,
       settings: src.settings || {},
-      transform: Object.assign(defaultTransform(), src.transform || {})
+      transform: Object.assign(defaultTransform(), src.transform || {}),
+      // v1.1.40：音频控制 + 源滤镜（对齐 OBS 来源扩展）
+      volume: (src.volume !== undefined) ? src.volume : 1,
+      muted: !!src.muted,
+      filters: Array.isArray(src.filters) ? src.filters.slice() : []
     };
     // 旧形态迁移
     if (src.type === 'image') {
@@ -145,7 +152,9 @@
       orient: scene.orient === 'port' ? 'port' : 'land',
       rotate: Number(scene.rotate) || 0,
       size: scene.size || (scene.orient === 'port' ? '1080x1920' : '1920x1080'),
-      sources: Array.isArray(scene.sources) ? scene.sources.map(normalizeSource) : []
+      sources: Array.isArray(scene.sources) ? scene.sources.map(normalizeSource) : [],
+      // v1.1.40：场景过渡配置（OBS 转场：类型 + 时长）
+      transition: scene.transition || { type: 'fade_transition', durationMs: 300 }
     };
   }
 
@@ -234,6 +243,48 @@
       if (tf.rotation !== undefined) s.transform.rotation = Number(tf.rotation) || 0;
       save();
       return s;
+    }
+
+    // ---- v1.1.40：音频控制 ----
+    function setSourceVolume(index, volume) {
+      var s = getSource(index); if (!s) return null;
+      var v = Number(volume); if (isNaN(v)) v = 1; if (v < 0) v = 0; if (v > 1) v = 1;
+      s.volume = v;
+      save();
+      return s;
+    }
+    function setSourceMuted(index, muted) {
+      var s = getSource(index); if (!s) return null;
+      s.muted = !!muted;
+      save();
+      return s;
+    }
+    // ---- v1.1.40：源滤镜 ----
+    function addFilter(index, filter) {
+      var s = getSource(index); if (!s) return null;
+      if (!s.filters) s.filters = [];
+      s.filters.push({ id: uid('flt'), filterId: filter.filterId, name: filter.name || filter.filterId, settings: filter.settings || {} });
+      save();
+      return s;
+    }
+    function removeFilter(index, filterName) {
+      var s = getSource(index); if (!s || !s.filters) return null;
+      var before = s.filters.length;
+      s.filters = s.filters.filter(function (f) { return f.name !== filterName; });
+      if (s.filters.length !== before) save();
+      return s;
+    }
+    // ---- v1.1.40：场景过渡 ----
+    function setTransition(sceneId, transition) {
+      var sc = state.cfg.lpScenes.filter(function (s) { return s.id === sceneId; })[0];
+      if (!sc) return null;
+      sc.transition = Object.assign({ type: 'fade_transition', durationMs: 300 }, transition);
+      save();
+      return sc;
+    }
+    function getTransition(sceneId) {
+      var sc = state.cfg.lpScenes.filter(function (s) { return s.id === sceneId; })[0];
+      return sc ? (sc.transition || { type: 'fade_transition', durationMs: 300 }) : { type: 'fade_transition', durationMs: 300 };
     }
 
     // 文件浏览：优先用 tcapi.ffPickFile（原生对话框），否则降级的 DOM <input type=file>
@@ -328,6 +379,12 @@
       duplicateSource: duplicateSource,
       reorderSource: reorderSource,
       setTransform: setTransform,
+      setSourceVolume: setSourceVolume,
+      setSourceMuted: setSourceMuted,
+      addFilter: addFilter,
+      removeFilter: removeFilter,
+      setTransition: setTransition,
+      getTransition: getTransition,
       openFile: openFile,
       toLegacy: toLegacy,
       toLegacyProgram: toLegacyProgram,

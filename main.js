@@ -1,6 +1,11 @@
 /**
  * 港丰影视直播工作台 - 主进程
  * 功能：TC3-HMAC-SHA256 签名调用腾讯云直播 API、窗口管理、流预览子窗口
+ *
+ * 引用来源：
+ *  - 云 API 签名算法遵循腾讯云 TC3-HMAC-SHA256 / 阿里云 ACS3-HMAC-SHA256 官方签名规范
+ *    （见各云官网 OpenAPI 文档）。
+ *  - libobs 真引擎经 native/obs-bridge 桥接，引擎来自 OBS Studio（GPL-2.0），见 THIRD_PARTY_NOTICES.md。
  */
 const { app, BrowserWindow, ipcMain, shell, dialog, Notification } = require('electron');
 const path = require('path');
@@ -1595,6 +1600,57 @@ ipcMain.handle('obs:startStream', (_e, url, key, o) => {
   catch (e) { return { ok: false, error: e.message }; }
 });
 ipcMain.handle('obs:stopStream', () => { const eng = getObsEngine(); if (eng) eng.stopStream(); return { ok: true }; });
+
+// ---- v1.1.40：音频控制 / 滤镜 / 过渡 / 预览 回读 IPC ----
+ipcMain.handle('obs:setVolume', (_e, scene, name, volume) => {
+  const eng = getObsEngine();
+  if (!eng) return { ok: false, error: 'libobs 引擎不可用' };
+  try { return { ok: eng.setSourceVolume(scene, name, volume) }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('obs:setMuted', (_e, scene, name, muted) => {
+  const eng = getObsEngine();
+  if (!eng) return { ok: false, error: 'libobs 引擎不可用' };
+  try { return { ok: eng.setSourceMuted(scene, name, muted) }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('obs:addFilter', (_e, scene, name, filterId, filterName, settings) => {
+  const eng = getObsEngine();
+  if (!eng) return { ok: false, error: 'libobs 引擎不可用' };
+  try { return { ok: eng.addSourceFilter(scene, name, filterId, filterName, settings) }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('obs:removeFilter', (_e, scene, name, filterName) => {
+  const eng = getObsEngine();
+  if (!eng) return { ok: false, error: 'libobs 引擎不可用' };
+  try { return { ok: eng.removeSourceFilter(scene, name, filterName) }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('obs:createTransition', (_e, typeId, name, durationMs) => {
+  const eng = getObsEngine();
+  if (!eng) return { ok: false, error: 'libobs 引擎不可用' };
+  try { return { ok: eng.createTransition(typeId, name, durationMs) }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('obs:triggerTransition', (_e, sceneName) => {
+  const eng = getObsEngine();
+  if (!eng) return { ok: false, error: 'libobs 引擎不可用' };
+  try { return { ok: eng.triggerTransition(sceneName) }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('obs:preview', (_e, width, height) => {
+  const eng = getObsEngine();
+  if (!eng) return { ok: false, reason: 'libobs 引擎不可用' };
+  try {
+    const r = eng.renderPreview(width, height);
+    if (r && r.ok && r.data) {
+      // Buffer 经 IPC 结构化克隆会变 Uint8Array，转 ArrayBuffer 传给渲染层
+      const ab = r.data.buffer ? r.data.buffer.slice(r.data.byteOffset, r.data.byteOffset + r.data.byteLength) : r.data;
+      return { ok: true, width: r.width, height: r.height, stride: r.stride, data: ab };
+    }
+    return { ok: false, reason: (r && r.reason) || '回读失败' };
+  } catch (e) { return { ok: false, reason: e.message }; }
+});
 
 // ---------------------------------------------------------------------------
 // 窗口

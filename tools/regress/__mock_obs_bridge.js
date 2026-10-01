@@ -20,5 +20,12 @@ module.exports = {
   enumDevices: function () { return []; },
   startStream: function (u, k, b, f) { this.__calls.push(['startStream', u, k, b, f]); return true; },
   stopStream: function () { this.__calls.push(['stopStream']); },
-  renderPreview: function () { return { ok: false, reason: 'mock' }; }
+  setSourceVolume: function (sc, n, v) { this.__calls.push(['setSourceVolume', sc, n, v]); return true; },
+  setSourceMuted: function (sc, n, m) { this.__calls.push(['setSourceMuted', sc, n, m]); return true; },
+  addSourceFilter: function (sc, n, fid, fn, j) { this.__calls.push(['addSourceFilter', sc, n, fid, fn, j]); return true; },
+  removeSourceFilter: function (sc, n, fn) { this.__calls.push(['removeSourceFilter', sc, n, fn]); return true; },
+  createTransition: function (t, n) { this.__calls.push(['createTransition', t, n]); return true; },
+  setTransitionDuration: function (ms) { this.__calls.push(['setTransitionDuration', ms]); return true; },
+  triggerTransition: function (n) { this.__calls.push(['triggerTransition', n]); return true; },
+  renderPreview: function (w, h) { this.__calls.push(['renderPreview', w, h]); return { ok: true, width: w, height: h, stride: w * 4, data: Buffer.alloc(w * h * 4, 128) }; }
 };

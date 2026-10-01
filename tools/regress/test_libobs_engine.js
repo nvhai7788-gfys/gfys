@@ -89,6 +89,37 @@ const ss = calls.filter(function (c) { return c[0] === 'startStream'; })[0];
 check('startStream url 透传', ss && ss[1] === 'rtmp://h/app/key', JSON.stringify(ss));
 check('startStream bitrate=3000', ss && ss[3] === 3000, JSON.stringify(ss));
 
+// ---- 6) v1.1.40：音频控制 ----
+eng.setSourceVolume('主场景', '题词', 0.5);
+const vol = calls.filter(function (c) { return c[0] === 'setSourceVolume'; })[0];
+check('setSourceVolume 透传 0.5', vol && vol[2] === '题词' && vol[3] === 0.5, JSON.stringify(vol));
+eng.setSourceMuted('主场景', '题词', true);
+const mut = calls.filter(function (c) { return c[0] === 'setSourceMuted'; })[0];
+check('setSourceMuted 透传 true', mut && mut[2] === '题词' && mut[3] === true, JSON.stringify(mut));
+
+// ---- 7) v1.1.40：源滤镜 ----
+eng.addSourceFilter('主场景', '题词', 'color_filter', '校正', { opacity: 0.8 });
+const flt = calls.filter(function (c) { return c[0] === 'addSourceFilter'; })[0];
+check('addSourceFilter 透传 filterId/name/settings', flt && flt[3] === 'color_filter' && flt[4] === '校正' && flt[5] === '{"opacity":0.8}', JSON.stringify(flt));
+eng.removeSourceFilter('主场景', '题词', '校正');
+const rflt = calls.filter(function (c) { return c[0] === 'removeSourceFilter'; })[0];
+check('removeSourceFilter 透传 filterName', rflt && rflt[3] === '校正', JSON.stringify(rflt));
+
+// ---- 8) v1.1.40：场景过渡 ----
+eng.createTransition('fade_transition', 'gf-transition', 500);
+const trn = calls.filter(function (c) { return c[0] === 'createTransition'; })[0];
+const trnDur = calls.filter(function (c) { return c[0] === 'setTransitionDuration'; })[0];
+check('createTransition 透传 typeId/name', trn && trn[1] === 'fade_transition' && trn[2] === 'gf-transition', JSON.stringify(trn));
+check('setTransitionDuration 透传 500', trnDur && trnDur[1] === 500, JSON.stringify(trnDur));
+eng.triggerTransition('场景二');
+const ttr = calls.filter(function (c) { return c[0] === 'triggerTransition'; })[0];
+check('triggerTransition 透传场景名', ttr && ttr[1] === '场景二', JSON.stringify(ttr));
+
+// ---- 9) v1.1.40：预览回读 ----
+const pv = eng.renderPreview(640, 360);
+check('renderPreview 返回 ok + 尺寸', pv && pv.ok === true && pv.width === 640 && pv.height === 360, JSON.stringify(pv && { ok: pv.ok, width: pv.width, height: pv.height }));
+check('renderPreview 返回 Buffer data', pv && pv.data && Buffer.isBuffer(pv.data) && pv.data.length === 640 * 360 * 4, 'len=' + (pv && pv.data && pv.data.length));
+
 // shutdown 触发
 eng.shutdown();
 const sd = calls.filter(function (c) { return c[0] === 'shutdown'; });

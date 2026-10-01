@@ -6,6 +6,7 @@ name: release
 # 把它们发布为正式 GitHub release，无需重新编译。
 #
 # 手动触发（workflow_dispatch），或对 v* tag 的 push 自动触发。
+# 版本号从 tag 名动态解析（v1.1.41 → 1.1.41），产物按 ref=当前 tag 定位（该 tag 指向的 build 成功产物）。
 
 on:
   workflow_dispatch:
@@ -22,12 +23,19 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: 解析版本号
+        id: ver
+        shell: bash
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          echo "version=${V}" >> "$GITHUB_OUTPUT"
+
       - name: 下载 macOS arm64 安装包
         uses: dawidd6/action-download-artifact@v27
         with:
           workflow: build.yml
           workflow_conclusion: success
-          ref: c9a823abc8638eff92b5fd0681d4fbfed78a8cd1
+          ref: ${{ github.ref_name }}
           name: mac-arm64
           path: dist
           if_no_artifact_found: warn
@@ -37,7 +45,7 @@ jobs:
         with:
           workflow: build.yml
           workflow_conclusion: success
-          ref: c9a823abc8638eff92b5fd0681d4fbfed78a8cd1
+          ref: ${{ github.ref_name }}
           name: mac-x64
           path: dist
           if_no_artifact_found: warn
@@ -47,7 +55,7 @@ jobs:
         with:
           workflow: build.yml
           workflow_conclusion: success
-          ref: c9a823abc8638eff92b5fd0681d4fbfed78a8cd1
+          ref: ${{ github.ref_name }}
           name: win-x64
           path: dist
           if_no_artifact_found: warn
@@ -58,7 +66,7 @@ jobs:
           echo "== 下载到的原始文件 =="
           find dist -type f -printf '%s  %p\n' | sort -k2
           mkdir -p release
-          V="1.1.39"
+          V="${{ steps.ver.outputs.version }}"
           # 用数组收集候选文件，避免 pipefail + head 的 SIGPIPE 问题
           mapfile -t EXES < <(find dist -type f -name '*.exe' ! -name '*.blockmap' | sort)
           mapfile -t ZIPS < <(find dist -type f -name '*-win.zip' | sort)
@@ -78,9 +86,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 列出并删除 release v1.1.39 上的所有旧资产，避免重复/乱码命名残留
+          TAG="${{ github.ref_name }}"
+          # 列出并删除该 tag 对应 release 上的所有旧资产，避免重复/乱码命名残留
           RELEASE_JSON=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v1.1.39")
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG")
           RELEASE_ID=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
           if [ -z "$RELEASE_ID" ]; then
             echo "未找到现有 release，跳过删除"
@@ -100,13 +109,13 @@ jobs:
       - name: 发布 release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v1.1.39
-          name: 港丰影视直播工作台 v1.1.39
+          tag_name: ${{ github.ref_name }}
+          name: 港丰影视直播工作台 ${{ github.ref_name }}
           body: |
-            港丰影视直播工作台 v1.1.39 —— libobs 真引擎 + 三平台安装包
+            港丰影视直播工作台 ${{ github.ref_name }} —— libobs 真引擎 + 三平台安装包
 
-            腾讯云/阿里云直播管理工作台（Electron 33），本版本接入 libobs 真引擎，
-            由 CI 从源码编译 obs-studio 30.2.3 + obs-bridge 原生桥接，并打包三平台安装包。
+            腾讯云/阿里云直播管理工作台（Electron 33），本版本接入 libobs 真引擎（音频控制 / 源滤镜 / 场景过渡 / 实时预览回读），
+            由 CI 从源码编译 obs-studio + obs-bridge 原生桥接，并打包三平台安装包。
 
             ## 安装包
             - Windows x64：NSIS 安装包（Setup）+ 免安装 ZIP
@@ -116,6 +125,7 @@ jobs:
             ## 说明
             - libobs 真引擎：渲染器可选「用 libobs 真引擎推流」，原生桥接不可用时自动回退 ffmpeg
             - 内置 ffmpeg：本地推流 / 录制免安装
+            - 内置「关于与免责声明」与第三方开源引用来源（THIRD_PARTY_NOTICES.md）
             - 安装包未签名（identity: null），交付前如需请自行签名 / 公证
 
             ## 校验

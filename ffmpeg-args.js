@@ -1,6 +1,9 @@
 /**
  * ffmpeg-args.js —— 纯函数模块：OBS 风格场景滤镜构造（无 Electron 依赖，可单测）
  *
+ * 引用来源：FFmpeg（https://ffmpeg.org，LGPL-2.1-or-later 或按编译配置为 GPL）
+ * 的 -vf / -filter_complex / lavfi / drawtext / overlay 等滤镜语法，见 THIRD_PARTY_NOTICES.md。
+ *
  * 负责把「画布缩放 / 翻转 / 旋转（横竖屏）/ 来源叠加」统一翻译成
  * ffmpeg 的 -vf 或 -filter_complex 参数。主进程 main.js 通过 require 调用，
  * 便于在不启动 Electron 的情况下用 node 做参数构造断言测试。

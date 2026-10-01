@@ -1,6 +1,10 @@
 /*
  * obs_bridge.cpp —— libobs 真引擎原生桥接（N-API）
  *
+ * 引用来源：libobs 与图形 API（gs_texrender / gs_stagesurface）来自 OBS Studio（GPL-2.0，
+ * https://github.com/obsproject/obs-studio）；过渡 / 滤镜 API 来自其 obs-transitions / obs-filters 插件。
+ * 详见根目录 THIRD_PARTY_NOTICES.md。
+ *
  * 把港丰影视直播工作台的 OBS 场景/来源/变换数据模型，镜像进 libobs（OBS Studio 引擎），
  * 并提供：引擎生命周期、场景图镜像、设备枚举、RTMP 推流输出。
  *
@@ -23,8 +27,12 @@
 #include <obs.h>
 #include <obs-data.h>
 #include <obs-module.h>
+#include <obs-source.h>
+#include <obs-transition.h>
 #include <util/base.h>
 #include <graphics/vec2.h>
+#include <graphics/graphics.h>
+#include <graphics/texrender.h>
 
 #ifdef _WIN32
 #define DEFAULT_GFX_MODULE "libobs-d3d11"
@@ -43,6 +51,13 @@ static obs_output_t*  g_output = nullptr;                          // rtmp 输�
 static obs_service_t* g_service = nullptr;                         // 服务
 static obs_encoder_t* g_venc   = nullptr;                          // 视频编码器
 static obs_encoder_t* g_aenc   = nullptr;                          // 音频编码器
+
+// ---- P2/P3/P4（v1.1.40）：过渡 / 预览回读 全局状态 ----
+static obs_source_t*       g_transition = nullptr;                 // 当前转场（obs-transitions 插件）
+static uint32_t            g_transition_ms = 300;                  // 过渡时长（ms，供 obs_transition_start 使用）
+static gs_stagesurf_t*     g_stagesurf  = nullptr;                 // 预览 staging 表面
+static uint8_t*            g_rgba_buf   = nullptr;                 // RGBA 回读缓冲
+static uint32_t            g_rgba_w     = 0, g_rgba_h = 0;         // 回读缓冲尺寸
 
 // 前向声明（定义在「推流输出」节，供 Shutdown 复用）
 static void stop_stream_internal();
@@ -167,6 +182,13 @@ static napi_value Shutdown(napi_env env, napi_callback_info info) {
   (void)info;
   // 先停推流，再清场景，最后关引擎
   stop_stream_internal();
+
+  // P3/P4 资源清理（过渡 / 预览回读）
+  if (g_transition) { obs_source_release(g_transition); g_transition = nullptr; }
+  g_transition_ms = 300;
+  if (g_stagesurf) { gs_stagesurface_destroy(g_stagesurf); g_stagesurf = nullptr; }
+  if (g_rgba_buf) { bfree(g_rgba_buf); g_rgba_buf = nullptr; }
+  g_rgba_w = g_rgba_h = 0;
 
   obs_set_output_source(0, nullptr);
   for (auto& kv : g_scenes) { if (kv.second) obs_scene_release(kv.second); }
@@ -466,16 +488,272 @@ static napi_value StopStream(napi_env env, napi_callback_info info) {
   return nullptr;
 }
 
-// renderPreview(): Phase 2 —— GPU 纹理回读（需在 Electron 渲染线程建立 GPU 上下文）。
-// 当前返回 { ok:false, reason }，接口保持稳定以便后续在不破坏调用方的前提下补齐。
+// ---------------------------------------------------------------------------
+// P1（v1.1.40）：音频控制。libobs 已自动混音（obs_reset_audio 建立 48k stereo），
+// 这里只补「每来源音量 / 静音 / 独立开关」的控制接口。
+// ---------------------------------------------------------------------------
+
+// setSourceVolume(scene, name, volume): volume ∈ [0.0, 1.0]（线性，libobs 内部转 dB）
+static napi_value SetSourceVolume(napi_env env, napi_callback_info info) {
+  size_t argc = 3; napi_value argv[3];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  std::string scene, name; double vol = 1.0;
+  if (argc < 3 || !str_arg(env, argv[0], scene) || !str_arg(env, argv[1], name) || !num_arg(env, argv[2], vol))
+    return fail(env, "setSourceVolume 参数不足");
+  obs_sceneitem_t* item = find_item(find_scene(scene), name);
+  if (!item) return bool_value(env, false);
+  obs_source_t* src = obs_sceneitem_get_source(item);
+  if (!src) return bool_value(env, false);
+  if (vol < 0.0) vol = 0.0; if (vol > 1.0) vol = 1.0;
+  obs_source_set_volume(src, (float)vol);
+  return bool_value(env, true);
+}
+
+// setSourceMuted(scene, name, muted)
+static napi_value SetSourceMuted(napi_env env, napi_callback_info info) {
+  size_t argc = 3; napi_value argv[3];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  std::string scene, name; bool muted = false;
+  if (argc < 3 || !str_arg(env, argv[0], scene) || !str_arg(env, argv[1], name) || !bool_arg(env, argv[2], muted))
+    return fail(env, "setSourceMuted 参数不足");
+  obs_sceneitem_t* item = find_item(find_scene(scene), name);
+  if (!item) return bool_value(env, false);
+  obs_source_t* src = obs_sceneitem_get_source(item);
+  if (!src) return bool_value(env, false);
+  obs_source_set_muted(src, muted);
+  return bool_value(env, true);
+}
+
+// ---------------------------------------------------------------------------
+// P2（v1.1.40）：源滤镜。obs-filters 插件已在 CI 编译，这里补加/删滤镜。
+// ---------------------------------------------------------------------------
+
+// addSourceFilter(scene, name, filterId, filterName, settingsJson)
+static napi_value AddSourceFilter(napi_env env, napi_callback_info info) {
+  size_t argc = 5; napi_value argv[5];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  std::string scene, name, filterId, filterName, settingsJson;
+  if (argc < 3 || !str_arg(env, argv[0], scene) || !str_arg(env, argv[1], name) || !str_arg(env, argv[2], filterId))
+    return fail(env, "addSourceFilter 参数不足");
+  if (argc >= 4) str_arg(env, argv[3], filterName);
+  if (argc >= 5) str_arg(env, argv[4], settingsJson);
+  if (filterName.empty()) filterName = filterId;
+
+  obs_sceneitem_t* item = find_item(find_scene(scene), name);
+  if (!item) return bool_value(env, false);
+  obs_source_t* src = obs_sceneitem_get_source(item);
+  if (!src) return bool_value(env, false);
+
+  obs_data_t* settings = nullptr;
+  if (!settingsJson.empty()) settings = obs_data_create_from_json(settingsJson.c_str());
+  if (!settings) settings = obs_data_create();
+  obs_source_t* filter = obs_source_create(filterId.c_str(), filterName.c_str(), settings, nullptr);
+  obs_data_release(settings);
+  if (!filter) {
+    blog(LOG_ERROR, "[obs-bridge] 创建滤镜失败：filter=%s", filterId.c_str());
+    return bool_value(env, false);
+  }
+  obs_source_filter_add(src, filter);
+  obs_source_release(filter);
+  return bool_value(env, true);
+}
+
+// removeSourceFilter(scene, name, filterName)
+static napi_value RemoveSourceFilter(napi_env env, napi_callback_info info) {
+  size_t argc = 3; napi_value argv[3];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  std::string scene, name, filterName;
+  if (argc < 3 || !str_arg(env, argv[0], scene) || !str_arg(env, argv[1], name) || !str_arg(env, argv[2], filterName))
+    return fail(env, "removeSourceFilter 参数不足");
+  obs_sceneitem_t* item = find_item(find_scene(scene), name);
+  if (!item) return bool_value(env, false);
+  obs_source_t* src = obs_sceneitem_get_source(item);
+  if (!src) return bool_value(env, false);
+  obs_source_t* filter = obs_source_get_filter_by_name(src, filterName.c_str());
+  if (!filter) return bool_value(env, false);
+  obs_source_filter_remove(src, filter);
+  return bool_value(env, true);
+}
+
+// ---------------------------------------------------------------------------
+// P3（v1.1.40）：场景过渡。obs-transitions 插件已在 CI 编译。
+// ---------------------------------------------------------------------------
+
+// createTransition(typeId, name): 常见 typeId = fade_transition / cut_transition / swipe_transition / slide_transition
+static napi_value CreateTransition(napi_env env, napi_callback_info info) {
+  size_t argc = 2; napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  std::string typeId, name;
+  if (argc < 1 || !str_arg(env, argv[0], typeId) || typeId.empty()) return fail(env, "缺少过渡类型");
+  if (argc >= 2) str_arg(env, argv[1], name);
+  if (name.empty()) name = typeId;
+
+  // 旧的过渡释放
+  if (g_transition) { obs_source_release(g_transition); g_transition = nullptr; }
+
+  g_transition = obs_source_create_private(typeId.c_str(), name.c_str(), nullptr);
+  if (!g_transition) {
+    // 兜底：cut_transition 若也未编译则用 fade
+    blog(LOG_WARNING, "[obs-bridge] 创建过渡失败：%s，尝试 fade_transition", typeId.c_str());
+    g_transition = obs_source_create_private("fade_transition", name.c_str(), nullptr);
+  }
+  if (!g_transition) return bool_value(env, false);
+
+  // 初始把当前 program 场景挂到过渡
+  obs_scene_t* cur = find_scene(g_program_scene);
+  if (cur) obs_transition_set(g_transition, obs_scene_get_source(cur));
+  return bool_value(env, true);
+}
+
+// setTransitionDuration(ms)：仅保存时长，真正生效在 triggerTransition 的 obs_transition_start(duration_ms)。
+// 注意：obs_transition_set_size 是设置过渡「尺寸」(cx,cy) 而非时长，勿混淆。
+static napi_value SetTransitionDuration(napi_env env, napi_callback_info info) {
+  size_t argc = 1; napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  double ms = 300;
+  if (argc >= 1) num_arg(env, argv[0], ms);
+  if (ms < 0) ms = 0; if (ms > 10000) ms = 10000;
+  g_transition_ms = (uint32_t)ms;
+  return bool_value(env, true);
+}
+
+// triggerTransition(sceneName): 把 program 切到指定场景（带过渡动画）
+static napi_value TriggerTransition(napi_env env, napi_callback_info info) {
+  size_t argc = 1; napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  if (!g_started) return fail(env, "libobs 未启动");
+  std::string name;
+  if (argc < 1 || !str_arg(env, argv[0], name)) return fail(env, "缺少目标场景名");
+  obs_scene_t* target = find_scene(name);
+  if (!target) return fail(env, "目标场景不存在");
+
+  if (!g_transition) {
+    // 未显式创建过渡时，直接硬切
+    obs_set_output_source(0, obs_scene_get_source(target));
+    g_program_scene = name;
+    return bool_value(env, true);
+  }
+
+  // OBS 过渡协议：把过渡源设为 program，再 transition_start 指向目标场景
+  obs_set_output_source(0, g_transition);
+  obs_scene_t* from = find_scene(g_program_scene);
+  if (from) obs_transition_set(g_transition, obs_scene_get_source(from));
+  bool ok = obs_transition_start(g_transition, OBS_TRANSITION_MODE_AUTO, g_transition_ms, obs_scene_get_source(target));
+  g_program_scene = name;
+  return bool_value(env, ok);
+}
+
+// ---------------------------------------------------------------------------
+// P4（v1.1.40）：实时预览回读。把当前 program 合成帧 staging 回读成 RGBA 缓冲。
+// 注意：需在 Electron 渲染线程建立 GPU 上下文后调用（libobs 的 video 上下文在主进程）。
+// 降采样到 width/height，避免全 1080p 每帧回读压垮 IPC。
+// ---------------------------------------------------------------------------
+
+// renderPreview(width, height): 返回 { ok, width, height, data(ArrayBuffer RGBA), stride }
 static napi_value RenderPreview(napi_env env, napi_callback_info info) {
-  (void)info;
+  size_t argc = 2; napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  if (!g_started) {
+    napi_value obj; napi_create_object(env, &obj);
+    napi_set_named_property(env, obj, "ok", bool_value(env, false));
+    napi_value r; napi_create_string_utf8(env, "libobs 未启动", NAPI_AUTO_LENGTH, &r);
+    napi_set_named_property(env, obj, "reason", r);
+    return obj;
+  }
+
+  double w = 640, h = 360;
+  if (argc >= 2) { num_arg(env, argv[0], w); num_arg(env, argv[1], h); }
+  uint32_t tw = (uint32_t)w, th = (uint32_t)h;
+  if (tw < 64) tw = 64; if (th < 64) th = 64;
+  if (tw > 1920) tw = 1920; if (th > 1080) th = 1080;
+
+  // 惰性创建 staging 表面与回读缓冲（尺寸变化时重建）
+  if (!g_stagesurf || g_rgba_w != tw || g_rgba_h != th) {
+    if (g_stagesurf) { gs_stagesurface_destroy(g_stagesurf); g_stagesurf = nullptr; }
+    if (g_rgba_buf) { bfree(g_rgba_buf); g_rgba_buf = nullptr; }
+    g_stagesurf = gs_stagesurface_create(tw, th, GS_RGBA);
+    g_rgba_buf = (uint8_t*)bmalloc((size_t)tw * th * 4);
+    g_rgba_w = tw; g_rgba_h = th;
+    if (!g_stagesurf || !g_rgba_buf) {
+      napi_value obj; napi_create_object(env, &obj);
+      napi_set_named_property(env, obj, "ok", bool_value(env, false));
+      napi_value r; napi_create_string_utf8(env, "staging surface 创建失败（无 GPU 上下文？）", NAPI_AUTO_LENGTH, &r);
+      napi_set_named_property(env, obj, "reason", r);
+      return obj;
+    }
+  }
+
+  // 渲染当前 program 输出并 staging 回读
+  obs_source_t* prog = obs_get_output_source(0);
+  if (!prog) prog = obs_scene_get_source(find_scene(g_program_scene));
+  if (!prog) {
+    napi_value obj; napi_create_object(env, &obj);
+    napi_set_named_property(env, obj, "ok", bool_value(env, false));
+    napi_value r; napi_create_string_utf8(env, "无 program 输出源", NAPI_AUTO_LENGTH, &r);
+    napi_set_named_property(env, obj, "reason", r);
+    return obj;
+  }
+
+  obs_video_info ovi;
+  obs_get_video_info(&ovi);
+
+  {
+    // 渲染一帧到 stagesurface
+    gs_texrender_t* tr = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+    if (!tr) {
+      napi_value obj; napi_create_object(env, &obj);
+      napi_set_named_property(env, obj, "ok", bool_value(env, false));
+      napi_value r; napi_create_string_utf8(env, "texrender 创建失败", NAPI_AUTO_LENGTH, &r);
+      napi_set_named_property(env, obj, "reason", r);
+      return obj;
+    }
+    gs_texrender_reset(tr);
+    uint32_t cx = ovi.base_width, cy = ovi.base_height;
+    if (!gs_texrender_begin(tr, cx, cy)) {
+      gs_texrender_destroy(tr);
+      napi_value obj; napi_create_object(env, &obj);
+      napi_set_named_property(env, obj, "ok", bool_value(env, false));
+      napi_value r; napi_create_string_utf8(env, "texrender_begin 失败", NAPI_AUTO_LENGTH, &r);
+      napi_set_named_property(env, obj, "reason", r);
+      return obj;
+    }
+    struct vec4 bg; vec4_zero(&bg);
+    gs_ortho(0.0f, (float)cx, 0.0f, (float)cy, -100.0f, 100.0f);
+    gs_clear(GS_CLEAR_COLOR | GS_CLEAR_DEPTH, &bg, 0, 0);
+    obs_source_video_render(prog);
+    gs_texrender_end(tr);
+
+    // 把 texrender 纹理 staging 到 stagesurface（会缩放到 tw×th）
+    gs_texture_t* tex = gs_texrender_get_texture(tr);
+    if (tex) {
+      gs_stage_texture(g_stagesurf, tex);
+    }
+    gs_texrender_destroy(tr);
+  }
+
+  // 回读 RGBA
+  uint32_t stride = 0;
+  if (gs_stagesurface_map(g_stagesurf, &g_rgba_buf, &stride)) {
+    size_t bytes = (size_t)tw * th * 4;
+    void* out = nullptr;
+    napi_value buf;
+    if (napi_create_buffer_copy(env, bytes, g_rgba_buf, &out, &buf) == napi_ok) {
+      gs_stagesurface_unmap(g_stagesurf);
+      napi_value obj; napi_create_object(env, &obj);
+      napi_set_named_property(env, obj, "ok", bool_value(env, true));
+      napi_set_named_property(env, obj, "width", [&](){ napi_value v; napi_create_uint32(env, tw, &v); return v; }());
+      napi_set_named_property(env, obj, "height", [&](){ napi_value v; napi_create_uint32(env, th, &v); return v; }());
+      napi_set_named_property(env, obj, "stride", [&](){ napi_value v; napi_create_uint32(env, stride, &v); return v; }());
+      napi_set_named_property(env, obj, "data", buf);
+      return obj;
+    }
+    gs_stagesurface_unmap(g_stagesurf);
+  }
+
   napi_value obj; napi_create_object(env, &obj);
-  napi_value ok; napi_get_boolean(env, false, &ok);
-  napi_value reason;
-  napi_create_string_utf8(env, "preview readback 未启用（需 GPU 上下文，规划中）", NAPI_AUTO_LENGTH, &reason);
-  napi_set_named_property(env, obj, "ok", ok);
-  napi_set_named_property(env, obj, "reason", reason);
+  napi_set_named_property(env, obj, "ok", bool_value(env, false));
+  napi_value r; napi_create_string_utf8(env, "回读失败（无 GPU 上下文或纹理不可读）", NAPI_AUTO_LENGTH, &r);
+  napi_set_named_property(env, obj, "reason", r);
   return obj;
 }
 
@@ -502,6 +780,13 @@ static napi_value Init(napi_env env, napi_value exports) {
     DECL("enumDevices",    EnumDevices),
     DECL("startStream",    StartStream),
     DECL("stopStream",     StopStream),
+    DECL("setSourceVolume",  SetSourceVolume),
+    DECL("setSourceMuted",   SetSourceMuted),
+    DECL("addSourceFilter",  AddSourceFilter),
+    DECL("removeSourceFilter", RemoveSourceFilter),
+    DECL("createTransition", CreateTransition),
+    DECL("setTransitionDuration", SetTransitionDuration),
+    DECL("triggerTransition", TriggerTransition),
     DECL("renderPreview",  RenderPreview)
   };
   napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

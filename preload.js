@@ -35,6 +35,14 @@ contextBridge.exposeInMainWorld('tcapi', {
   obsPushScene: (scene, config) => ipcRenderer.invoke('obs:pushScene', scene, config),
   obsStartStream: (url, key, o) => ipcRenderer.invoke('obs:startStream', url, key, o),
   obsStopStream: () => ipcRenderer.invoke('obs:stopStream'),
+  // v1.1.40：音频 / 滤镜 / 过渡 / 预览
+  obsSetVolume: (scene, name, volume) => ipcRenderer.invoke('obs:setVolume', scene, name, volume),
+  obsSetMuted: (scene, name, muted) => ipcRenderer.invoke('obs:setMuted', scene, name, muted),
+  obsAddFilter: (scene, name, filterId, filterName, settings) => ipcRenderer.invoke('obs:addFilter', scene, name, filterId, filterName, settings),
+  obsRemoveFilter: (scene, name, filterName) => ipcRenderer.invoke('obs:removeFilter', scene, name, filterName),
+  obsCreateTransition: (typeId, name, durationMs) => ipcRenderer.invoke('obs:createTransition', typeId, name, durationMs),
+  obsTriggerTransition: (sceneName) => ipcRenderer.invoke('obs:triggerTransition', sceneName),
+  obsPreview: (width, height) => ipcRenderer.invoke('obs:preview', width, height),
   onFfLog: (cb) => ipcRenderer.on('ff:log', (_e, data) => cb(data)),
   onFfProgress: (cb) => ipcRenderer.on('ff:progress', (_e, data) => cb(data)),
   onFfRestarted: (cb) => ipcRenderer.on('ff:restarted', (_e, data) => cb(data))

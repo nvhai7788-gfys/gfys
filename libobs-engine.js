@@ -1,6 +1,10 @@
 /**
  * libobs-engine.js —— libobs 真引擎主进程适配器
  *
+ * 引用来源：libobs 来自 OBS Studio（GPL-2.0，https://github.com/obsproject/obs-studio），
+ * 经 native/obs-bridge（N-API）桥接；过渡 / 滤镜分别来自 obs-transitions / obs-filters 插件。
+ * 详见 THIRD_PARTY_NOTICES.md。
+ *
  * 把渲染层 SceneEngine 产出的 OBS 形态场景（normalizeScene 结果：{id,name,size,sources:[{type,settings,transform}]}）
  * 镜像进 libobs 原生桥接（native/obs-bridge），实现与 SceneEngine 对齐的「真引擎」输出路径：
  *   场景图镜像 → 来源设置 → 变换（像素坐标/缩放/旋转/裁剪）→ 设备枚举 → RTMP 推流。
@@ -188,6 +192,54 @@ function createLibobsEngine(opts) {
     try { return native.enumDevices(category || 'video') || []; } catch (e) { return []; }
   }
 
+  // ---- P1：音频控制 ----
+  function setSourceVolume(scene, name, volume) {
+    if (!started) return false;
+    try { return !!native.setSourceVolume(scene, name, Number(volume) || 0); } catch (e) { return false; }
+  }
+  function setSourceMuted(scene, name, muted) {
+    if (!started) return false;
+    try { return !!native.setSourceMuted(scene, name, !!muted); } catch (e) { return false; }
+  }
+
+  // ---- P2：源滤镜 ----
+  function addSourceFilter(scene, name, filterId, filterName, settings) {
+    if (!started) return false;
+    try { return !!native.addSourceFilter(scene, name, filterId, filterName || filterId, JSON.stringify(settings || {})); }
+    catch (e) { return false; }
+  }
+  function removeSourceFilter(scene, name, filterName) {
+    if (!started) return false;
+    try { return !!native.removeSourceFilter(scene, name, filterName); } catch (e) { return false; }
+  }
+
+  // ---- P3：场景过渡 ----
+  function createTransition(typeId, name, durationMs) {
+    if (!started) return false;
+    try {
+      if (!native.createTransition(typeId, name || typeId)) return false;
+      if (durationMs != null) native.setTransitionDuration(Number(durationMs) || 300);
+      return true;
+    } catch (e) { return false; }
+  }
+  function triggerTransition(sceneName) {
+    if (!started) return false;
+    try { return !!native.triggerTransition(sceneName); } catch (e) { return false; }
+  }
+
+  // ---- P4：预览回读（返回 { ok, width, height, data }，data 为 Buffer）----
+  function renderPreview(width, height) {
+    if (!started) return { ok: false, reason: 'libobs 未启动' };
+    try {
+      const r = native.renderPreview(Number(width) || 640, Number(height) || 360);
+      if (r && r.ok) {
+        // napi_create_buffer_copy 返回的 Buffer 直接可用
+        return { ok: true, width: r.width, height: r.height, stride: r.stride, data: r.data };
+      }
+      return { ok: false, reason: (r && r.reason) || '回读失败' };
+    } catch (e) { return { ok: false, reason: e.message }; }
+  }
+
   function shutdown() {
     if (!started) return;
     try { native.stopStream(); native.shutdown(); } catch (e) { /* ignore */ }
@@ -203,6 +255,13 @@ function createLibobsEngine(opts) {
     startStream: startStream,
     stopStream: stopStream,
     enumDevices: enumDevices,
+    setSourceVolume: setSourceVolume,
+    setSourceMuted: setSourceMuted,
+    addSourceFilter: addSourceFilter,
+    removeSourceFilter: removeSourceFilter,
+    createTransition: createTransition,
+    triggerTransition: triggerTransition,
+    renderPreview: renderPreview,
     shutdown: shutdown,
     // 供渲染层展示/测试使用
     toObsSourceId: toObsSourceId,

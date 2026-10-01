@@ -298,6 +298,20 @@
   .lp-modal-body { padding: 14px 16px; }
   .lp-prop-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
   .lp-prop-row > label { width: 92px; flex: 0 0 92px; font-size: 12px; color: var(--text2); text-align: right; }
+  /* v1.1.40：源滤镜标签 */
+  .lp-flt-tag { display: inline-block; padding: 2px 8px; margin: 2px 4px 2px 0; border-radius: 10px;
+    background: var(--card2, #1b2740); border: 1px solid var(--border); font-size: 11px; cursor: pointer; }
+  .lp-flt-tag:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* v1.1.40：关于与免责声明弹窗 */
+  .about-scroll { max-height: 56vh; overflow-y: auto; padding-right: 6px; }
+  .about-sec { margin-bottom: 14px; }
+  .about-sec h4 { font-size: 13px; margin-bottom: 8px; color: var(--text); }
+  .about-sec p { font-size: 12px; line-height: 1.8; color: var(--text2); margin-bottom: 8px; }
+  .about-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .about-table th, .about-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--text2); }
+  .about-table th { color: var(--text); font-weight: 600; background: var(--panel2, rgba(143,161,196,.08)); }
+  .about-note { font-size: 11px; color: var(--text2); opacity: .8; margin-top: 8px; }
 
   /* 告警弹窗层：每条告警一个独立卡片、纵向堆叠（多路断流时同时列出，不再互相覆盖）。
      旧实现是单个 #alarmModalMask 单例，后一条直接覆盖前一条 → 「多路断流只提醒一次」 */
@@ -599,7 +613,7 @@
       <div class="side-version" id="sideVersion">
         <span class="sv-dot"></span>
         <span class="sv-label">港丰影视</span>
-        <span class="sv-text" id="sideVerText">v1.1.39</span>
+        <span class="sv-text" id="sideVerText">v1.1.41</span>
       </div>
       <div style="display:flex;gap:6px;margin-bottom:10px">
         <button class="btn btn-sm btn-primary" id="provTencent" style="flex:1;justify-content:center">腾讯云</button>
@@ -704,6 +718,10 @@
         <span data-i18n="nav.settings">设置</span>
       </button>
       <div class="foot">数据经由腾讯云官方 API<br>live · 2018-08-01<br>密钥仅存本机</div>
+      <button class="nav-item" id="aboutBtn" style="margin-top:6px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
+        <span>关于与免责声明</span>
+      </button>
     </div>
 
     <div class="content">
@@ -1240,6 +1258,7 @@
               <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="lpStudioMode" checked> 工作室模式</label>
               <button class="btn btn-sm" id="lpPrevBtn">开启采集预览</button>
               <button class="btn btn-sm" id="lpPrevStopBtn" style="display:none">关闭采集预览</button>
+              <button class="btn btn-sm" id="lpObsPrevBtn" style="display:none" title="用 libobs 真引擎实时预览合成画面（需原生桥接 + GPU）">libobs 预览</button>
             </div>
           </div>
 
@@ -1262,6 +1281,7 @@
             <div class="lp-pane" id="lpPrevPane">
               <div class="pane-title">预览（PVM）— 采集 / 素材 / 场景画面</div>
               <video id="lpPreview" muted controls playsinline class="lp-pane-video"></video>
+              <canvas id="lpObsPrevCanvas" style="display:none;width:100%;height:100%;background:#000" width="640" height="360"></canvas>
               <div class="lp-stage-overlay" id="lpPrevOverlay"></div>
             </div>
             <div class="lp-trans" id="lpTransCol" style="display:none">
@@ -1270,6 +1290,7 @@
                 <option value="fade">淡入淡出</option>
                 <option value="slide">滑入</option>
               </select>
+              <input type="number" id="lpTransDur" min="0" max="5000" step="50" value="300" title="转场时长(ms，libobs 真引擎生效)" style="width:100%;margin-top:4px" placeholder="时长ms">
               <button class="btn btn-primary btn-sm" id="lpTransBtn" title="将预览场景切到输出（推流画面）" style="width:100%;justify-content:center">转场到输出 ▶</button>
               <button class="btn btn-sm" id="lpProgPreviewBtn" title="开始 / 停止输出实时预览" style="width:100%;justify-content:center">输出预览</button>
             </div>
@@ -2305,6 +2326,45 @@
     </div>
     <button class="btn btn-primary" id="ulLoginBtn" style="width:100%;justify-content:center;margin-top:14px">登录</button>
     <div class="msg" id="ulMsg"></div>
+  </div>
+</div>
+
+<!-- 关于与免责声明弹窗（v1.1.40） -->
+<div class="mask hidden" id="aboutMask" style="z-index:190">
+  <div class="modal" style="width:640px">
+    <h3>关于与免责声明</h3>
+    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.41</span></div>
+    <div class="about-scroll">
+      <div class="about-sec">
+        <h4>一、免责声明</h4>
+        <p>1. 本软件为直播管理与推流辅助工具，仅供合法、合规的直播业务使用。用户应遵守所在地法律法规、平台规范及腾讯云 / 阿里云等云服务商的《服务条款》，因违反上述规定产生的后果由用户自行承担。</p>
+        <p>2. 本软件通过用户自行填写的 API 密钥访问云服务，密钥仅在本地保存，开发者不收集、不存储、不上传任何密钥与直播数据。请妥善保管密钥，因密钥泄露导致的一切损失由用户自行承担。</p>
+        <p>3. 本软件按「现状」提供，不对推流稳定性、画面质量、可用性作任何明示或默示担保。因网络、云服务商、第三方组件或硬件设备故障造成的直播中断或损失，开发者不承担任何责任。</p>
+        <p>4. 本软件引用了若干开源组件（详见下方「第三方开源引用」），各组件版权归其原作者所有，并遵循其各自的开源许可证。</p>
+      </div>
+      <div class="about-sec">
+        <h4>二、第三方开源引用</h4>
+        <table class="about-table">
+          <thead><tr><th>组件</th><th>用途</th><th>许可证</th></tr></thead>
+          <tbody>
+            <tr><td>mpegts.js</td><td>FLV 直播流播放</td><td>Apache-2.0</td></tr>
+            <tr><td>hls.js</td><td>HLS 直播流播放</td><td>Apache-2.0</td></tr>
+            <tr><td>Apache ECharts</td><td>数据可视化图表</td><td>Apache-2.0</td></tr>
+            <tr><td>Electron</td><td>桌面应用框架</td><td>MIT</td></tr>
+            <tr><td>electron-builder</td><td>安装包构建</td><td>MIT</td></tr>
+            <tr><td>FFmpeg</td><td>本地推流 / 录制</td><td>LGPL-2.1+ / GPL（按编译配置）</td></tr>
+            <tr><td>OBS Studio (libobs)</td><td>libobs 真引擎</td><td>GPL-2.0</td></tr>
+            <tr><td>obs-transitions / obs-filters</td><td>场景过渡 / 源滤镜</td><td>GPL-2.0</td></tr>
+            <tr><td>node-gyp</td><td>原生桥接编译</td><td>MIT</td></tr>
+          </tbody>
+        </table>
+        <p class="about-note">完整版权与许可证信息见随附的 THIRD_PARTY_NOTICES.md 及各组件官方仓库。libobs（OBS Studio）采用 GPL-2.0 许可证，本软件对 libobs 的使用方式请遵循其许可证要求。</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="aboutCloseBtn">关闭</button>
+      <button class="btn btn-primary" id="aboutAgreeBtn">我已阅读并同意</button>
+    </div>
   </div>
 </div>
 
@@ -9532,6 +9592,20 @@ function lpOpenSourceProps(i) {
   lpSelSrc = i;
   title.textContent = '来源属性 — ' + (SE.SOURCE_TYPES[s.type] ? SE.SOURCE_TYPES[s.type].label : s.type);
   var html = '<div class="lp-prop-row"><label>名称</label><input id="lpPropName" value="' + esc(s.name || '') + '" style="flex:1"></div>';
+  // v1.1.40：音频控制（音量 + 静音，所有来源通用；libobs 真引擎推流时生效，ffmpeg 侧为 UI 占位）
+  html += '<div class="lp-prop-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><label>音量</label>' +
+    '<input type="range" id="lpPropVolume" min="0" max="100" value="' + Math.round((s.volume != null ? s.volume : 1) * 100) + '" style="flex:1">' +
+    '<span id="lpPropVolumeVal" style="width:40px;text-align:right;font-size:12px;color:var(--text2)">' + Math.round((s.volume != null ? s.volume : 1) * 100) + '%</span></div>' +
+    '<div class="lp-prop-row"><label>静音</label><input type="checkbox" id="lpPropMuted" ' + (s.muted ? 'checked' : '') + '></div>';
+  // v1.1.40：源滤镜（OBS 滤镜列表 + 添加）
+  html += '<div class="lp-prop-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px"><label>滤镜</label>' +
+    '<select id="lpPropFilterSel">' +
+    ['color_key_filter:色键抠像', 'chroma_key_filter:色度键', 'color_filter:颜色校正', 'scale_filter:缩放/宽高比', 'sharpness_filter:锐化', 'scroll_filter:滚动', 'luma_key_filter:亮度键'].map(function (o) { var kv = o.split(':'); return '<option value="' + kv[0] + '">' + kv[1] + '</option>'; }).join('') +
+    '</select>' +
+    '<button class="btn btn-sm" id="lpPropFilterAdd">＋ 添加</button></div>' +
+    '<div class="lp-prop-row" style="flex-wrap:wrap"><label style="width:100%">已添加</label><span id="lpPropFilterList" style="flex:1;font-size:12px;color:var(--text2)">' +
+    (s.filters && s.filters.length ? s.filters.map(function (f) { return '<span class="lp-flt-tag" data-flt="' + esc(f.name || '') + '">' + esc(f.name || f.filterId || '') + ' ✕</span>'; }).join(' ') : '（无）') +
+    '</span></div>';
   SE.getProperties(s.type).forEach(function (p) {
     var val = (s.settings && s.settings[p.key] !== undefined) ? s.settings[p.key] : (p.default !== undefined ? p.default : '');
     if (p.type === 'path') {
@@ -9560,6 +9634,42 @@ function lpOpenSourceProps(i) {
   body.innerHTML = html;
   var nameInput = $('lpPropName');
   if (nameInput) nameInput.addEventListener('input', function () { SE.updateSource(i, { name: this.value }); lpRenderSources(); });
+
+  // v1.1.40：音量滑块 + 静音 + 滤镜绑定
+  var volInput = $('lpPropVolume'), volVal = $('lpPropVolumeVal');
+  if (volInput) volInput.addEventListener('input', function () {
+    var v = Number(this.value) / 100;
+    SE.setSourceVolume(i, v);
+    if (volVal) volVal.textContent = Math.round(v * 100) + '%';
+    lpSyncObsAudio(i);
+  });
+  var mutedInput = $('lpPropMuted');
+  if (mutedInput) mutedInput.addEventListener('change', function () { SE.setSourceMuted(i, this.checked); lpSyncObsAudio(i); });
+  var fltAdd = $('lpPropFilterAdd'), fltSel = $('lpPropFilterSel'), fltList = $('lpPropFilterList');
+  function rerenderFilters() {
+    var s2 = SE.getSource(i);
+    if (!fltList || !s2) return;
+    fltList.innerHTML = (s2.filters && s2.filters.length)
+      ? s2.filters.map(function (f) { return '<span class="lp-flt-tag" data-flt="' + esc(f.name || '') + '">' + esc(f.name || f.filterId || '') + ' ✕</span>'; }).join(' ')
+      : '（无）';
+    Array.prototype.forEach.call(fltList.querySelectorAll('[data-flt]'), function (tag) {
+      tag.addEventListener('click', function () {
+        var fn = tag.getAttribute('data-flt');
+        SE.removeFilter(i, fn);
+        lpSyncObsFilterRemove(i, fn);
+        rerenderFilters();
+      });
+    });
+  }
+  rerenderFilters();
+  if (fltAdd && fltSel) fltAdd.addEventListener('click', function () {
+    var kv = fltSel.value.split(':');
+    var f = { filterId: kv[0], name: kv[0] + '-' + (SE.getSource(i).filters.length + 1) };
+    SE.addFilter(i, f);
+    lpSyncObsFilterAdd(i, f);
+    rerenderFilters();
+  });
+
   Array.prototype.forEach.call(body.querySelectorAll('[data-pk]'), function (el) {
     var pk = el.getAttribute('data-pk');
     var evt = (el.type === 'checkbox') ? 'change' : 'input';
@@ -10054,6 +10164,8 @@ function lpOpenPreview() {
 }
 $('lpPrevBtn').addEventListener('click', lpOpenPreview);
 $('lpPrevStopBtn').addEventListener('click', lpStopPreview);
+// v1.1.40：libobs 真引擎预览（原生桥接可用时显示按钮）
+if ($('lpObsPrevBtn')) $('lpObsPrevBtn').addEventListener('click', lpToggleObsPreview);
 
 // ---------- v1.1.31：OBS 工作室模式（预览 / 转场 / 输出）+ 推流实时输出监看 ----------
 // 通用 mpegts / hls 播放器（复用 preview.html 同款内核：ffRelay 把 RTMP 转本地 FLV）
@@ -10152,6 +10264,10 @@ if ($('lpTransBtn')) $('lpTransBtn').addEventListener('click', function () {
     });
   }
   lpRenderOverlays();
+  // v1.1.40：libobs 真引擎推流时，把过渡同步到原生引擎（CSS 动画仅是 UI 层模拟）
+  var obsType = (type === 'fade' ? 'fade_transition' : (type === 'slide' ? 'slide_transition' : 'cut_transition'));
+  var dur = (($('lpTransDur') && Number($('lpTransDur').value)) || 300);
+  lpSyncObsTransition(lpProgramScene().name, obsType, dur);
   var wasRunning = lpLanes.some(function (L) { return L.running; });
   if (wasRunning) { lpRestartAll(); toast('已转场到输出：' + lpProgramScene().name + '（推流已切到该场景）'); }
   else { toast('已切到输出场景：' + lpProgramScene().name + '（未推流，开始推流即应用）'); }
@@ -11751,12 +11867,101 @@ document.addEventListener('DOMContentLoaded', function () {
 // 版本号显示（登录页徽标 / 设置页），版本来自 package.json（electron app.getVersion）
 (function initVerBadge() {
   try {
-    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.39');
+    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.41');
     var lv = document.getElementById('loginVer'); if (lv) lv.textContent = ver;
     var sv = document.getElementById('stVer'); if (sv) sv.textContent = ver;
     var sv2 = document.getElementById('sideVerText'); if (sv2) sv2.textContent = ver;
+    var av = document.getElementById('aboutVer'); if (av) av.textContent = ver;
   } catch (e) { /* 版本显示失败不影响功能 */ }
 })();
+
+// v1.1.40：关于与免责声明弹窗（侧边栏底部入口）
+(function initAbout() {
+  function open() {
+    var mask = $('aboutMask'); if (!mask) return;
+    mask.classList.remove('hidden');
+  }
+  function close() {
+    var mask = $('aboutMask'); if (!mask) return;
+    mask.classList.add('hidden');
+  }
+  var btn = $('aboutBtn');
+  if (btn) btn.addEventListener('click', open);
+  var cb = $('aboutCloseBtn'); if (cb) cb.addEventListener('click', close);
+  var ab = $('aboutAgreeBtn'); if (ab) ab.addEventListener('click', close);
+  var mask = $('aboutMask');
+  if (mask) mask.addEventListener('click', function (e) { if (e.target === mask) close(); });
+})();
+
+// v1.1.40：libobs 真引擎的音频 / 滤镜 / 过渡 / 预览 桥接（推流走 libobs 引擎时才同步到原生；
+// ffmpeg 引擎下这些是纯 UI 占位，不影响既有链路）。所有调用失败静默，绝不阻断主流程。
+function lpObsEngineActive() { return lpEngineMode && lpEngineMode() === 'libobs'; }
+function lpObsSceneName() {
+  var sc = lpProgramScene ? lpProgramScene() : (lpActiveScene && lpActiveScene());
+  return sc ? (sc.name || '主场景') : '主场景';
+}
+function lpSyncObsAudio(i) {
+  if (!lpObsEngineActive() || !window.tcapi || !window.tcapi.obsSetVolume) return;
+  var s = SE.getSource(i); if (!s) return;
+  var nm = lpObsSceneName();
+  window.tcapi.obsSetVolume(nm, s.name, s.volume != null ? s.volume : 1).catch(function () {});
+  window.tcapi.obsSetMuted(nm, s.name, !!s.muted).catch(function () {});
+}
+function lpSyncObsFilterAdd(i, f) {
+  if (!lpObsEngineActive() || !window.tcapi || !window.tcapi.obsAddFilter) return;
+  var s = SE.getSource(i); if (!s) return;
+  window.tcapi.obsAddFilter(lpObsSceneName(), s.name, f.filterId, f.name, f.settings || {}).catch(function () {});
+}
+function lpSyncObsFilterRemove(i, filterName) {
+  if (!lpObsEngineActive() || !window.tcapi || !window.tcapi.obsRemoveFilter) return;
+  var s = SE.getSource(i); if (!s) return;
+  window.tcapi.obsRemoveFilter(lpObsSceneName(), s.name, filterName).catch(function () {});
+}
+// P3：转场时把场景过渡同步到 libobs（若引擎激活）
+function lpSyncObsTransition(sceneName, typeId, durationMs) {
+  if (!lpObsEngineActive() || !window.tcapi || !window.tcapi.obsCreateTransition) return;
+  window.tcapi.obsCreateTransition(typeId, 'gf-transition', durationMs || 300)
+    .then(function () { return window.tcapi.obsTriggerTransition(sceneName); })
+    .catch(function () {});
+}
+// P4：libobs 真引擎预览循环（降采样 640×360 回读 RGBA → canvas 上屏）
+var lpObsPreviewing = false, lpObsPreviewTimer = null;
+function lpToggleObsPreview() {
+  var canvas = $('lpObsPrevCanvas'), btn = $('lpObsPrevBtn');
+  if (!canvas) return;
+  if (lpObsPreviewing) {
+    lpObsPreviewing = false;
+    if (lpObsPreviewTimer) { clearTimeout(lpObsPreviewTimer); lpObsPreviewTimer = null; }
+    canvas.style.display = 'none';
+    var v = $('lpPreview'); if (v) v.style.display = '';
+    if (btn) btn.textContent = 'libobs 预览';
+    return;
+  }
+  if (!window.tcapi || !window.tcapi.obsPreview) { toast('libobs 预览不可用（需原生桥接）', true); return; }
+  lpObsPreviewing = true;
+  if (btn) btn.textContent = '停止 libobs 预览';
+  var v = $('lpPreview'); if (v) v.style.display = 'none';
+  canvas.style.display = '';
+  var ctx = canvas.getContext('2d');
+  function tick() {
+    if (!lpObsPreviewing) return;
+    window.tcapi.obsPreview(640, 360).then(function (r) {
+      if (!lpObsPreviewing) return;
+      if (r && r.ok && r.data) {
+        try {
+          var img = new ImageData(new Uint8ClampedArray(r.data), r.width || 640, r.height || 360);
+          canvas.width = r.width || 640; canvas.height = r.height || 360;
+          ctx.putImageData(img, 0, 0);
+        } catch (e) { /* 帧数据异常忽略 */ }
+      }
+      lpObsPreviewTimer = setTimeout(tick, 33);   // ~30fps
+    }).catch(function () {
+      if (!lpObsPreviewing) return;
+      lpObsPreviewTimer = setTimeout(tick, 200);  // 出错退避
+    });
+  }
+  tick();
+}
 
 // v1.1.38：探测 libobs 真引擎是否可用（原生桥接是否已打包）。可用则显示「用 libobs 真引擎推流」开关，
 // 否则隐藏该行（保持 ffmpeg 默认路径不变，UI 无感知回退）。
@@ -11771,6 +11976,9 @@ document.addEventListener('DOMContentLoaded', function () {
           row.style.display = 'flex';
           var tag = document.getElementById('lpLibobsTag');
           if (tag && window._lpObsStatus.version) tag.textContent = '（libobs ' + window._lpObsStatus.version + '）';
+          // v1.1.40：原生桥接可用时显示 libobs 预览按钮
+          var pb = document.getElementById('lpObsPrevBtn');
+          if (pb) pb.style.display = '';
         }
       }).catch(function () { /* 探测失败 → 保持 ffmpeg */ });
     }
