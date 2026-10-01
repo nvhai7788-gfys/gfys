@@ -50,27 +50,50 @@ if ($content -match 'if\(CMAKE_SIZEOF_VOID_P EQUAL 8\)') {
 
 # 3) cmake configure
 Write-Host "==> cmake configure"
-$cmakeErr = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
-  -DOBS_CMAKE_VERSION=3.0.0 `
-  -DENABLE_UI=OFF `
-  -DENABLE_BROWSER=OFF `
-  -DENABLE_SCRIPTING=OFF `
-  -DENABLE_HEVC=OFF `
-  -DENABLE_AJA=OFF `
-  -DENABLE_DECKLINK=OFF `
-  -DENABLE_VLC=OFF `
-  -DENABLE_WEBRTC=OFF `
-  -DENABLE_VST=OFF `
-  -DENABLE_NATIVE_NVENC=OFF `
-  -DENABLE_NVAFX=OFF `
-  -DENABLE_NVVFX=OFF `
-  -DENABLE_RNNOISE=OFF `
-  -DENABLE_SPEEXDSP=OFF 2>&1
+$cmakeArgs = @(
+  "-S", "$OBS",
+  "-B", "$BUILD",
+  "-G", "Visual Studio 17 2022",
+  "-A", "x64",
+  "-DOBS_CMAKE_VERSION=3.0.0",
+  "-DENABLE_UI=OFF",
+  "-DENABLE_BROWSER=OFF",
+  "-DENABLE_SCRIPTING=OFF",
+  "-DENABLE_HEVC=OFF",
+  "-DENABLE_AJA=OFF",
+  "-DENABLE_DECKLINK=OFF",
+  "-DENABLE_VLC=OFF",
+  "-DENABLE_WEBRTC=OFF",
+  "-DENABLE_VST=OFF",
+  "-DENABLE_NATIVE_NVENC=OFF",
+  "-DENABLE_NVAFX=OFF",
+  "-DENABLE_NVVFX=OFF",
+  "-DENABLE_RNNOISE=OFF",
+  "-DENABLE_SPEEXDSP=OFF"
+)
+Write-Host "cmake 参数: $($cmakeArgs -join ' ')"
+$cmakeOutLog = Join-Path $SRC "cmake-out.log"
+$cmakeErrLog = Join-Path $SRC "cmake-err.log"
+& cmake @cmakeArgs 1>$cmakeOutLog 2>$cmakeErrLog
 $cmakeCode = $LASTEXITCODE
+
+# 回显关键开关在 CMakeCache.txt 里的实际值（确认 -D 是否生效）
+$cacheFile = Join-Path $BUILD "CMakeCache.txt"
+if (Test-Path $cacheFile) {
+  Write-Host "==> 关键开关实际值："
+  Select-String -Path $cacheFile -Pattern "^(ENABLE_UI|ENABLE_BROWSER|ENABLE_RNNOISE|ENABLE_SPEEXDSP|ENABLE_NVAFX|ENABLE_NVVFX|ENABLE_AJA|ENABLE_WEBRTC):" | ForEach-Object { Write-Host $_.Line }
+}
+
 if ($cmakeCode -ne 0) {
   Write-Host "::error::cmake configure 失败 (exit $cmakeCode)"
-  # 直接 dump 最后 45 行原始输出为 ::error（不再关键词过滤，避免漏掉/淹没真正的致命行）
-  @($cmakeErr) | Select-Object -Last 45 | ForEach-Object { Write-Host "::error::[cmake] $_" }
+  # stderr 是 cmake 错误的来源，先 dump stderr 末尾
+  if (Test-Path $cmakeErrLog) {
+    Get-Content $cmakeErrLog -Tail 40 | ForEach-Object { Write-Host "::error::[stderr] $_" }
+  }
+  # 再 dump stdout 末尾（summary / 上下文）
+  if (Test-Path $cmakeOutLog) {
+    Get-Content $cmakeOutLog -Tail 20 | ForEach-Object { Write-Host "::error::[stdout] $_" }
+  }
   exit 1
 }
 
