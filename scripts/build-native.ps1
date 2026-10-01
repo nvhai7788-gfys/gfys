@@ -30,14 +30,16 @@ git submodule update --init --depth 1 plugins/win-dshow/libdshowcapture
 git submodule update --init --depth 1 plugins/obs-outputs/ftl-sdk
 
 # 3) 配置：走新构建系统（OBS_CMAKE_VERSION=3.0.0，自动下载 obs-deps），关 UI/浏览器/脚本
-cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
+$cmakeOutput = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
   -DOBS_CMAKE_VERSION=3.0.0 `
   -DENABLE_UI=OFF `
   -DENABLE_BROWSER=OFF `
   -DENABLE_SCRIPTING=OFF `
-  -DENABLE_HEVC=OFF
+  -DENABLE_HEVC=OFF 2>&1
 if ($LASTEXITCODE -ne 0) {
   Write-Host "::error::cmake configure 失败 (exit $LASTEXITCODE)"
+  $tail = @($cmakeOutput) | Select-Object -Last 40
+  foreach ($l in $tail) { Write-Host $l }
   exit $LASTEXITCODE
 }
 

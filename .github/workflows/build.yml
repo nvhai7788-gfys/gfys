@@ -94,9 +94,11 @@ jobs:
           git config user.name "ci-bot"
           git config user.email "ci@localhost"
           if ls ci-last-build-*.log >/dev/null 2>&1; then
+            git fetch origin main
+            git checkout -B ci-log origin/main
             git add -f ci-last-build-*.log
             git commit -m "ci: build log $(date +%s)" || true
-            git push origin main || true
+            git push origin HEAD:main || true
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
