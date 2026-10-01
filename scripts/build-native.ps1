@@ -39,6 +39,15 @@ if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule obs-browser 失败 (ex
 git submodule update --init --depth 1 plugins/obs-websocket
 if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule obs-websocket 失败 (exit $LASTEXITCODE)"; exit 1 }
 
+# 2.5) patch：跳过 64 位构建自动触发的 Win32 子 configure（我只要 x64；子 configure 缺 glslc/glslangValidator 会拖垮主 configure）
+$defaults = Join-Path $OBS "cmake\windows\defaults.cmake"
+$content = Get-Content $defaults -Raw
+if ($content -match 'if\(CMAKE_SIZEOF_VOID_P EQUAL 8\)') {
+  $content = $content -replace 'if\(CMAKE_SIZEOF_VOID_P EQUAL 8\)', 'if(FALSE AND CMAKE_SIZEOF_VOID_P EQUAL 8)'
+  Set-Content -Path $defaults -Value $content -NoNewline
+  Write-Host "==> patched defaults.cmake（跳过 Win32 子 configure）"
+}
+
 # 3) cmake configure
 Write-Host "==> cmake configure"
 $cmakeErr = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
