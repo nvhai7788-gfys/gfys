@@ -82,5 +82,5 @@ jobs:
             dist/**/*.dmg
             dist/**/*.exe
             dist/**/*.zip
-          draft: true
+          draft: false
           fail_on_unmatched_files: true
