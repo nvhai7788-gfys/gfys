@@ -13,7 +13,7 @@ on:
     tags:
       - 'v*'
 
-# 需要 contents: write 才能创建 release 并上传资产
+# 需要 contents: write 才能创建 release 并上传/删除资产
 permissions:
   contents: write
   actions: read
@@ -52,8 +52,52 @@ jobs:
           path: dist
           if_no_artifact_found: warn
 
-      - name: 列出待发布文件
-        run: find dist -type f -printf '%s  %p\n' | sort -k2
+      - name: 整理安装包为标准命名
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== 下载到的原始文件 =="
+          find dist -type f -printf '%s  %p\n' | sort -k2
+          mkdir -p release
+          V="1.1.39"
+          # Windows NSIS 安装包：dist 下体积最大的 .exe（排除 .blockmap）
+          EXE=$(find dist -type f -name '*.exe' ! -name '*.blockmap' | xargs -r ls -S | head -1)
+          [ -n "$EXE" ] && cp "$EXE" "release/港丰影视直播工作台-${V}-win.exe"
+          # Windows 免安装 ZIP：文件名含 -win.zip（排除 -arm64 之类）
+          ZIP=$(find dist -type f -name '*-win.zip' | head -1)
+          [ -n "$ZIP" ] && cp "$ZIP" "release/港丰影视直播工作台-${V}-win.zip"
+          # macOS arm64 DMG：文件名含 -arm64.dmg
+          DMG_ARM64=$(find dist -type f -name '*-arm64.dmg' ! -name '*.blockmap' | head -1)
+          [ -n "$DMG_ARM64" ] && cp "$DMG_ARM64" "release/港丰影视直播工作台-${V}-arm64.dmg"
+          # macOS x64 DMG：.dmg 里排除 -arm64 与 .blockmap（体积约 152MB）
+          DMG_X64=$(find dist -type f -name '*.dmg' ! -name '*-arm64.dmg' ! -name '*.blockmap' | xargs -r ls -S | head -1)
+          [ -n "$DMG_X64" ] && cp "$DMG_X64" "release/港丰影视直播工作台-${V}-x64.dmg"
+          echo "== 整理后的标准文件 =="
+          ls -lh release/
+
+      - name: 删除旧 release 资产
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 列出并删除 release v1.1.39 上的所有旧资产，避免重复/乱码命名残留
+          RELEASE_JSON=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v1.1.39")
+          RELEASE_ID=$(echo "$RELEASE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))")
+          if [ -z "$RELEASE_ID" ]; then
+            echo "未找到现有 release，跳过删除"
+          else
+            echo "release id=$RELEASE_ID，删除其全部旧资产..."
+            curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets?per_page=100" \
+              | python3 -c "import sys,json; [print(a['id'], a['name']) for a in json.load(sys.stdin)]" \
+              | while read AID ANAME; do
+                  echo "删除资产 [$AID] $ANAME"
+                  curl -s -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+                    "https://api.github.com/repos/${{ github.repository }}/releases/assets/$AID" \
+                    -o /dev/null -w "  -> HTTP %{http_code}\n"
+                done
+          fi
 
       - name: 发布 release
         uses: softprops/action-gh-release@v3
@@ -79,8 +123,6 @@ jobs:
             ## 校验
             - static_check / test_ffmpeg_args / e2e_r76 / e2e_r77 / e2e_r75 / test_libobs_engine 全绿
           files: |
-            dist/**/*.dmg
-            dist/**/*.exe
-            dist/**/*.zip
+            release/*
           draft: false
           fail_on_unmatched_files: true
