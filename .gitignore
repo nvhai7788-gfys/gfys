@@ -28,3 +28,9 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+# 临时调试文件（curl 输出等）
+cr.json
+joblog.txt
+ann_tmp.json
+*.json.tmp
