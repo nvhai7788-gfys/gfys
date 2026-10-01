@@ -56,6 +56,11 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: 安装 Python 3.11（node-gyp 需要 distutils）
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       # ---------- 编译工具链 ----------
       - name: 安装 CMake / Ninja（macOS）
         if: matrix.target == 'mac'
