@@ -24,6 +24,7 @@ module.exports = {
   setSourceMuted: function (sc, n, m) { this.__calls.push(['setSourceMuted', sc, n, m]); return true; },
   addSourceFilter: function (sc, n, fid, fn, j) { this.__calls.push(['addSourceFilter', sc, n, fid, fn, j]); return true; },
   removeSourceFilter: function (sc, n, fn) { this.__calls.push(['removeSourceFilter', sc, n, fn]); return true; },
+  updateSourceFilter: function (sc, n, fn, j) { this.__calls.push(['updateSourceFilter', sc, n, fn, j]); return true; },
   createTransition: function (t, n) { this.__calls.push(['createTransition', t, n]); return true; },
   setTransitionDuration: function (ms) { this.__calls.push(['setTransitionDuration', ms]); return true; },
   triggerTransition: function (n) { this.__calls.push(['triggerTransition', n]); return true; },

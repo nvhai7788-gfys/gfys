@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('tcapi', {
   obsSetMuted: (scene, name, muted) => ipcRenderer.invoke('obs:setMuted', scene, name, muted),
   obsAddFilter: (scene, name, filterId, filterName, settings) => ipcRenderer.invoke('obs:addFilter', scene, name, filterId, filterName, settings),
   obsRemoveFilter: (scene, name, filterName) => ipcRenderer.invoke('obs:removeFilter', scene, name, filterName),
+  obsUpdateFilter: (scene, name, filterName, settings) => ipcRenderer.invoke('obs:updateFilter', scene, name, filterName, settings),
   obsCreateTransition: (typeId, name, durationMs) => ipcRenderer.invoke('obs:createTransition', typeId, name, durationMs),
   obsTriggerTransition: (sceneName) => ipcRenderer.invoke('obs:triggerTransition', sceneName),
   obsPreview: (width, height) => ipcRenderer.invoke('obs:preview', width, height),

@@ -613,7 +613,7 @@
       <div class="side-version" id="sideVersion">
         <span class="sv-dot"></span>
         <span class="sv-label">港丰影视</span>
-        <span class="sv-text" id="sideVerText">v1.1.41</span>
+        <span class="sv-text" id="sideVerText">v1.1.42</span>
       </div>
       <div style="display:flex;gap:6px;margin-bottom:10px">
         <button class="btn btn-sm btn-primary" id="provTencent" style="flex:1;justify-content:center">腾讯云</button>
@@ -1341,6 +1341,13 @@
             <div class="lp-modal">
               <div class="lp-modal-head"><span>变换（Transform）</span><button class="btn btn-sm" id="lpTransformClose">关闭</button></div>
               <div class="lp-modal-body" id="lpTransformBody"></div>
+            </div>
+          </div>
+          <!-- v1.1.42 OBS 式「滤镜属性」编辑对话框（点击滤镜标签进入，调参数对齐 OBS obs-filters） -->
+          <div class="lp-modal-mask" id="lpFilterPropsModal" style="display:none">
+            <div class="lp-modal">
+              <div class="lp-modal-head"><span id="lpFilterPropsTitle">滤镜属性</span><button class="btn btn-sm" id="lpFilterPropsClose">关闭</button></div>
+              <div class="lp-modal-body" id="lpFilterPropsBody"></div>
             </div>
           </div>
 
@@ -2333,7 +2340,7 @@
 <div class="mask hidden" id="aboutMask" style="z-index:190">
   <div class="modal" style="width:640px">
     <h3>关于与免责声明</h3>
-    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.41</span></div>
+    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.42</span></div>
     <div class="about-scroll">
       <div class="about-sec">
         <h4>一、免责声明</h4>
@@ -9650,14 +9657,13 @@ function lpOpenSourceProps(i) {
     var s2 = SE.getSource(i);
     if (!fltList || !s2) return;
     fltList.innerHTML = (s2.filters && s2.filters.length)
-      ? s2.filters.map(function (f) { return '<span class="lp-flt-tag" data-flt="' + esc(f.name || '') + '">' + esc(f.name || f.filterId || '') + ' ✕</span>'; }).join(' ')
+      ? s2.filters.map(function (f) { return '<span class="lp-flt-tag" data-flt="' + esc(f.name || '') + '">' + esc(f.name || f.filterId || '') + '</span>'; }).join(' ')
       : '（无）';
+    // v1.1.42：点击滤镜标签 → 打开滤镜属性面板（调参数）；删除移入属性面板内
     Array.prototype.forEach.call(fltList.querySelectorAll('[data-flt]'), function (tag) {
       tag.addEventListener('click', function () {
         var fn = tag.getAttribute('data-flt');
-        SE.removeFilter(i, fn);
-        lpSyncObsFilterRemove(i, fn);
-        rerenderFilters();
+        lpOpenFilterProps(i, fn);
       });
     });
   }
@@ -9668,6 +9674,8 @@ function lpOpenSourceProps(i) {
     SE.addFilter(i, f);
     lpSyncObsFilterAdd(i, f);
     rerenderFilters();
+    // 添加后直接打开该滤镜的属性面板，便于立即调参
+    lpOpenFilterProps(i, f.name);
   });
 
   Array.prototype.forEach.call(body.querySelectorAll('[data-pk]'), function (el) {
@@ -9762,10 +9770,107 @@ function lpOpenTransform(i) {
   modal.style.display = 'flex';
 }
 function lpCloseTransform() { var m = $('lpTransformModal'); if (m) m.style.display = 'none'; }
+// v1.1.42：OBS 式「滤镜属性」对话框 —— 点击滤镜标签进入，按描述符渲染属性控件，修改后同步数据模型 + libobs
+var lpCurFilterSrc = -1, lpCurFilterName = '';
+function lpOpenFilterProps(i, filterName) {
+  var s = SE.getSource(i); if (!s) return;
+  var f = (s.filters || []).filter(function (x) { return x.name === filterName; })[0];
+  if (!f) return;
+  var modal = $('lpFilterPropsModal'), body = $('lpFilterPropsBody'), title = $('lpFilterPropsTitle');
+  if (!modal || !body) return;
+  lpCurFilterSrc = i; lpCurFilterName = filterName;
+  var ft = SE.FILTER_TYPES[f.filterId];
+  title.textContent = '滤镜属性 — ' + (ft ? ft.label : f.filterId);
+  var props = SE.getFilterProperties(f.filterId);
+  var st = f.settings || {};
+  var html = '<div class="lp-prop-row"><label>滤镜名</label><input id="lpFltName" value="' + esc(f.name || '') + '" style="flex:1"></div>';
+  props.forEach(function (p) {
+    var val = (st[p.key] !== undefined) ? st[p.key] : (p.default !== undefined ? p.default : '');
+    if (p.type === 'bool') {
+      html += '<div class="lp-prop-row"><label>' + esc(p.name) + '</label><input type="checkbox" data-fk="' + p.key + '" ' + (val ? 'checked' : '') + '></div>';
+    } else if (p.type === 'int' || p.type === 'float') {
+      var isFloat = p.type === 'float';
+      html += '<div class="lp-prop-row"><label>' + esc(p.name) + '</label>' +
+        '<input type="range" data-fk="' + p.key + '" min="' + (p.min !== undefined ? p.min : 0) + '" max="' + (p.max !== undefined ? p.max : 100) + '"' +
+        ' step="' + (p.step || (isFloat ? 0.01 : 1)) + '" value="' + esc(val) + '" style="flex:1">' +
+        '<input type="number" data-fkn="' + p.key + '" value="' + esc(val) + '"' +
+        ' min="' + (p.min !== undefined ? p.min : 0) + '" max="' + (p.max !== undefined ? p.max : 100) + '"' +
+        ' step="' + (p.step || (isFloat ? 0.01 : 1)) + '" style="width:72px"></div>';
+    } else if (p.type === 'color') {
+      html += '<div class="lp-prop-row"><label>' + esc(p.name) + '</label><input type="color" data-fk="' + p.key + '" value="' + esc(val || '#000000') + '"></div>';
+    } else if (p.type === 'list') {
+      var opts = (p.options || []).map(function (o) { return '<option value="' + esc(o) + '"' + (o === val ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('');
+      html += '<div class="lp-prop-row"><label>' + esc(p.name) + '</label><select data-fk="' + p.key + '">' + opts + '</select></div>';
+    } else {
+      html += '<div class="lp-prop-row"><label>' + esc(p.name) + '</label><input data-fk="' + p.key + '" value="' + esc(val) + '" style="flex:1"></div>';
+    }
+  });
+  html += '<div class="lp-prop-row" style="border-top:1px solid var(--border);padding-top:10px;margin-top:6px">' +
+    '<button class="btn btn-sm btn-danger" id="lpFltRemove">删除滤镜</button>' +
+    '<span style="flex:1"></span>' +
+    '<button class="btn btn-sm" id="lpFltApply">应用</button></div>';
+  body.innerHTML = html;
+
+  function readProps() {
+    var o = {};
+    Array.prototype.forEach.call(body.querySelectorAll('[data-fk]'), function (el) {
+      var k = el.getAttribute('data-fk');
+      var v = (el.type === 'checkbox') ? el.checked : (el.type === 'range' || el.type === 'number') ? Number(el.value) : el.value;
+      o[k] = v;
+    });
+    return o;
+  }
+  // 滑块与数值框双向联动
+  Array.prototype.forEach.call(body.querySelectorAll('input[type="range"][data-fk]'), function (rg) {
+    var k = rg.getAttribute('data-fk');
+    var num = body.querySelector('input[type="number"][data-fkn="' + k + '"]');
+    rg.addEventListener('input', function () {
+      if (num) num.value = rg.value;
+      SE.updateFilter(i, filterName, readProps());
+      lpSyncObsFilterUpdate(i, filterName);
+    });
+    if (num) num.addEventListener('input', function () {
+      rg.value = num.value;
+      SE.updateFilter(i, filterName, readProps());
+      lpSyncObsFilterUpdate(i, filterName);
+    });
+  });
+  // 其它控件（bool/color/list/text）直接提交
+  Array.prototype.forEach.call(body.querySelectorAll('[data-fk]:not(input[type="range"])'), function (el) {
+    if (el.type === 'number') return;  // 数值框已由滑块联动处理
+    var evt = (el.type === 'checkbox' || el.tagName === 'SELECT') ? 'change' : 'input';
+    el.addEventListener(evt, function () {
+      SE.updateFilter(i, filterName, readProps());
+      lpSyncObsFilterUpdate(i, filterName);
+    });
+  });
+  var rmBtn = $('lpFltRemove');
+  if (rmBtn) rmBtn.addEventListener('click', function () {
+    SE.removeFilter(i, filterName);
+    lpSyncObsFilterRemove(i, filterName);
+    modal.style.display = 'none';
+    // 若来源属性面板还开着，刷新其滤镜列表
+    if ($('lpSrcPropsModal') && $('lpSrcPropsModal').style.display === 'flex') lpOpenSourceProps(i);
+  });
+  var applyBtn = $('lpFltApply');
+  if (applyBtn) applyBtn.addEventListener('click', function () { modal.style.display = 'none'; });
+  modal.style.display = 'flex';
+}
+function lpCloseFilterProps() { var m = $('lpFilterPropsModal'); if (m) m.style.display = 'none'; }
+function lpSyncObsFilterUpdate(i, filterName) {
+  if (!lpObsEngineActive() || !window.tcapi || !window.tcapi.obsUpdateFilter) return;
+  var s = SE.getSource(i); if (!s) return;
+  var f = (s.filters || []).filter(function (x) { return x.name === filterName; })[0];
+  if (!f) return;
+  // 用 obs:updateFilter 更新已存在滤镜（obs_source_update），避免同名滤镜累积
+  window.tcapi.obsUpdateFilter(lpObsSceneName(), s.name, f.name, f.settings || {}).catch(function () {});
+}
 if ($('lpSrcPropsClose')) $('lpSrcPropsClose').addEventListener('click', lpCloseSourceProps);
 if ($('lpTransformClose')) $('lpTransformClose').addEventListener('click', lpCloseTransform);
+if ($('lpFilterPropsClose')) $('lpFilterPropsClose').addEventListener('click', lpCloseFilterProps);
 if ($('lpSrcPropsModal')) $('lpSrcPropsModal').addEventListener('click', function (e) { if (e.target === this) lpCloseSourceProps(); });
 if ($('lpTransformModal')) $('lpTransformModal').addEventListener('click', function (e) { if (e.target === this) lpCloseTransform(); });
+if ($('lpFilterPropsModal')) $('lpFilterPropsModal').addEventListener('click', function (e) { if (e.target === this) lpCloseFilterProps(); });
 var lpSrcBox = $('lpSources');
 if (lpSrcBox) lpSrcBox.addEventListener('change', function (e) {
   var t = e.target; var i = t.getAttribute('data-i'); if (i == null) return; i = Number(i);
@@ -11867,7 +11972,7 @@ document.addEventListener('DOMContentLoaded', function () {
 // 版本号显示（登录页徽标 / 设置页），版本来自 package.json（electron app.getVersion）
 (function initVerBadge() {
   try {
-    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.41');
+    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.42');
     var lv = document.getElementById('loginVer'); if (lv) lv.textContent = ver;
     var sv = document.getElementById('stVer'); if (sv) sv.textContent = ver;
     var sv2 = document.getElementById('sideVerText'); if (sv2) sv2.textContent = ver;

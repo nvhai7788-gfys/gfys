@@ -212,6 +212,12 @@ function createLibobsEngine(opts) {
     if (!started) return false;
     try { return !!native.removeSourceFilter(scene, name, filterName); } catch (e) { return false; }
   }
+  // v1.1.42：更新已存在滤镜的设置（滤镜属性面板调参用，避免 add 累积同名滤镜）
+  function updateSourceFilter(scene, name, filterName, settings) {
+    if (!started) return false;
+    try { return !!native.updateSourceFilter(scene, name, filterName, JSON.stringify(settings || {})); }
+    catch (e) { return false; }
+  }
 
   // ---- P3：场景过渡 ----
   function createTransition(typeId, name, durationMs) {
@@ -259,6 +265,7 @@ function createLibobsEngine(opts) {
     setSourceMuted: setSourceMuted,
     addSourceFilter: addSourceFilter,
     removeSourceFilter: removeSourceFilter,
+    updateSourceFilter: updateSourceFilter,
     createTransition: createTransition,
     triggerTransition: triggerTransition,
     renderPreview: renderPreview,

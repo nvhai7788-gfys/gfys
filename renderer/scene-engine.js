@@ -87,6 +87,97 @@
 
   var SOURCE_ORDER = ['ffmpeg_source', 'image_source', 'text_ft2_source', 'av_capture_input', 'browser_source', 'color_source', 'monitor_capture'];
 
+  // ---------------- OBS 源滤镜类型注册表（对齐 obs-filters 插件） ----------------
+  // v1.1.42：每类滤镜的属性描述符（key / 名称 / 类型 / 范围 / 默认值），
+  // key 与默认值精确对齐 OBS Studio 30.2.3 的 plugins/obs-filters/*.c（详见各源文件）。
+  // 属性 type 复用来源属性的渲染语义：int/float/bool/color/list。
+  var FILTER_TYPES = {
+    'chroma_key_filter': {
+      id: 'chroma_key_filter', label: '色度键（绿幕抠像）',
+      props: [
+        { key: 'key_color', name: '键色', type: 'color', default: '#00ff00' },
+        { key: 'key_color_type', name: '键色类型', type: 'list', options: ['green', 'blue', 'magenta', 'custom'], default: 'green' },
+        { key: 'similarity', name: '相似度', type: 'int', min: 1, max: 1000, default: 400 },
+        { key: 'smoothness', name: '平滑度', type: 'int', min: 1, max: 1000, default: 80 },
+        { key: 'spill', name: '溢色抑制', type: 'int', min: 1, max: 1000, default: 100 },
+        { key: 'opacity', name: '不透明度', type: 'int', min: 0, max: 100, default: 100 },
+        { key: 'contrast', name: '对比度', type: 'float', min: -1.0, max: 1.0, step: 0.01, default: 0.0 },
+        { key: 'brightness', name: '亮度', type: 'float', min: -1.0, max: 1.0, step: 0.01, default: 0.0 },
+        { key: 'gamma', name: '伽马', type: 'float', min: -1.0, max: 1.0, step: 0.01, default: 0.0 }
+      ]
+    },
+    'color_key_filter': {
+      id: 'color_key_filter', label: '色键（纯色抠像）',
+      props: [
+        { key: 'key_color', name: '键色', type: 'color', default: '#ffffff' },
+        { key: 'key_color_type', name: '键色类型', type: 'list', options: ['green', 'blue', 'magenta', 'custom'], default: 'custom' },
+        { key: 'similarity', name: '相似度', type: 'int', min: 1, max: 1000, default: 400 },
+        { key: 'smoothness', name: '平滑度', type: 'int', min: 1, max: 1000, default: 80 },
+        { key: 'opacity', name: '不透明度', type: 'int', min: 0, max: 100, default: 100 },
+        { key: 'contrast', name: '对比度', type: 'float', min: -1.0, max: 1.0, step: 0.01, default: 0.0 },
+        { key: 'brightness', name: '亮度', type: 'float', min: -1.0, max: 1.0, step: 0.01, default: 0.0 },
+        { key: 'gamma', name: '伽马', type: 'float', min: -1.0, max: 1.0, step: 0.01, default: 0.0 }
+      ]
+    },
+    'color_filter': {
+      id: 'color_filter', label: '颜色校正',
+      props: [
+        { key: 'gamma', name: '伽马', type: 'float', min: -1.0, max: 1.0, step: 0.01, default: 0.0 },
+        { key: 'contrast', name: '对比度', type: 'float', min: -2.0, max: 2.0, step: 0.01, default: 0.0 },
+        { key: 'brightness', name: '亮度', type: 'float', min: -1.0, max: 1.0, step: 0.01, default: 0.0 },
+        { key: 'saturation', name: '饱和度', type: 'float', min: -1.0, max: 5.0, step: 0.01, default: 0.0 },
+        { key: 'hue_shift', name: '色相偏移', type: 'float', min: -180.0, max: 180.0, step: 1.0, default: 0.0 },
+        { key: 'opacity', name: '不透明度', type: 'int', min: 0, max: 100, default: 100 }
+      ]
+    },
+    'scale_filter': {
+      id: 'scale_filter', label: '缩放/宽高比',
+      props: [
+        { key: 'resolution', name: '分辨率', type: 'text', default: '' },
+        { key: 'sampling', name: '采样', type: 'list', options: ['bilinear', 'area', 'bicubic', 'lanczos'], default: 'bilinear' },
+        { key: 'undistort', name: '去畸变', type: 'bool', default: false }
+      ]
+    },
+    'sharpness_filter': {
+      id: 'sharpness_filter', label: '锐化',
+      props: [
+        { key: 'sharpness', name: '锐化强度', type: 'float', min: 0.0, max: 1.0, step: 0.01, default: 0.08 }
+      ]
+    },
+    'scroll_filter': {
+      id: 'scroll_filter', label: '滚动',
+      props: [
+        { key: 'speed_x', name: '水平速度', type: 'float', min: -500.0, max: 500.0, step: 1.0, default: 0.0 },
+        { key: 'speed_y', name: '垂直速度', type: 'float', min: -500.0, max: 500.0, step: 1.0, default: 0.0 },
+        { key: 'limit_cx', name: '限制宽度', type: 'bool', default: false },
+        { key: 'cx', name: '裁剪宽度', type: 'int', min: 1, max: 16384, default: 1920 },
+        { key: 'limit_cy', name: '限制高度', type: 'bool', default: false },
+        { key: 'cy', name: '裁剪高度', type: 'int', min: 1, max: 16384, default: 1080 },
+        { key: 'loop', name: '循环', type: 'bool', default: false }
+      ]
+    },
+    'luma_key_filter': {
+      id: 'luma_key_filter', label: '亮度键',
+      props: [
+        { key: 'luma_max', name: '亮度上限', type: 'float', min: 0.0, max: 1.0, step: 0.01, default: 1.0 },
+        { key: 'luma_min', name: '亮度下限', type: 'float', min: 0.0, max: 1.0, step: 0.01, default: 0.0 },
+        { key: 'luma_max_smooth', name: '上限平滑', type: 'float', min: 0.0, max: 1.0, step: 0.01, default: 0.0 },
+        { key: 'luma_min_smooth', name: '下限平滑', type: 'float', min: 0.0, max: 1.0, step: 0.01, default: 0.0 }
+      ]
+    }
+  };
+
+  var FILTER_ORDER = ['chroma_key_filter', 'color_key_filter', 'color_filter', 'scale_filter', 'sharpness_filter', 'scroll_filter', 'luma_key_filter'];
+
+  // 滤镜默认设置（按 FILTER_TYPES 的 props default 生成）
+  function defaultFilterSettings(filterId) {
+    var t = FILTER_TYPES[filterId]; if (!t) return {};
+    var s = {};
+    t.props.forEach(function (p) { if (p.default !== undefined) s[p.key] = p.default; });
+    return s;
+  }
+  function getFilterProperties(filterId) { var t = FILTER_TYPES[filterId]; return t ? t.props.slice() : []; }
+
   function defaultSettings(typeId) {
     var t = SOURCE_TYPES[typeId]; if (!t) return {};
     var s = {};
@@ -263,7 +354,10 @@
     function addFilter(index, filter) {
       var s = getSource(index); if (!s) return null;
       if (!s.filters) s.filters = [];
-      s.filters.push({ id: uid('flt'), filterId: filter.filterId, name: filter.name || filter.filterId, settings: filter.settings || {} });
+      var filterId = filter.filterId;
+      // v1.1.42：按滤镜类型填入默认设置（对齐 OBS 默认值），用户可后续在属性面板编辑
+      var settings = Object.assign(defaultFilterSettings(filterId), filter.settings || {});
+      s.filters.push({ id: uid('flt'), filterId: filterId, name: filter.name || filterId, settings: settings });
       save();
       return s;
     }
@@ -273,6 +367,15 @@
       s.filters = s.filters.filter(function (f) { return f.name !== filterName; });
       if (s.filters.length !== before) save();
       return s;
+    }
+    // v1.1.42：编辑滤镜属性（按 filterName 定位，合并 settings）
+    function updateFilter(index, filterName, settings) {
+      var s = getSource(index); if (!s || !s.filters) return null;
+      var f = s.filters.filter(function (x) { return x.name === filterName; })[0];
+      if (!f) return null;
+      f.settings = Object.assign({}, f.settings, settings || {});
+      save();
+      return f;
     }
     // ---- v1.1.40：场景过渡 ----
     function setTransition(sceneId, transition) {
@@ -364,10 +467,13 @@
 
     return {
       SOURCE_TYPES: SOURCE_TYPES,
+      FILTER_TYPES: FILTER_TYPES,
       listSourceTypes: listSourceTypes,
       getProperties: getProperties,
       isPathProperty: isPathProperty,
       defaultSettings: defaultSettings,
+      defaultFilterSettings: defaultFilterSettings,
+      getFilterProperties: getFilterProperties,
       normalizeSource: normalizeSource,
       normalizeScene: normalizeScene,
       activeScene: activeScene,
@@ -383,6 +489,7 @@
       setSourceMuted: setSourceMuted,
       addFilter: addFilter,
       removeFilter: removeFilter,
+      updateFilter: updateFilter,
       setTransition: setTransition,
       getTransition: getTransition,
       openFile: openFile,
@@ -395,9 +502,12 @@
 
   return {
     SOURCE_TYPES: SOURCE_TYPES,
+    FILTER_TYPES: FILTER_TYPES,
     createEngine: createEngine,
     normalizeSource: normalizeSource,
     normalizeScene: normalizeScene,
-    defaultTransform: defaultTransform
+    defaultTransform: defaultTransform,
+    defaultFilterSettings: defaultFilterSettings,
+    getFilterProperties: getFilterProperties
   };
 });

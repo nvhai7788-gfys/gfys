@@ -1626,6 +1626,12 @@ ipcMain.handle('obs:removeFilter', (_e, scene, name, filterName) => {
   try { return { ok: eng.removeSourceFilter(scene, name, filterName) }; }
   catch (e) { return { ok: false, error: e.message }; }
 });
+ipcMain.handle('obs:updateFilter', (_e, scene, name, filterName, settings) => {
+  const eng = getObsEngine();
+  if (!eng) return { ok: false, error: 'libobs 引擎不可用' };
+  try { return { ok: eng.updateSourceFilter(scene, name, filterName, settings) }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
 ipcMain.handle('obs:createTransition', (_e, typeId, name, durationMs) => {
   const eng = getObsEngine();
   if (!eng) return { ok: false, error: 'libobs 引擎不可用' };

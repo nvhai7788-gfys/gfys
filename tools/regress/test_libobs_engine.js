@@ -104,6 +104,10 @@ check('addSourceFilter 透传 filterId/name/settings', flt && flt[3] === 'color_
 eng.removeSourceFilter('主场景', '题词', '校正');
 const rflt = calls.filter(function (c) { return c[0] === 'removeSourceFilter'; })[0];
 check('removeSourceFilter 透传 filterName', rflt && rflt[3] === '校正', JSON.stringify(rflt));
+// v1.1.42：滤镜属性更新（updateSourceFilter）
+eng.updateSourceFilter('主场景', '题词', '校正', { opacity: 0.5, contrast: 0.2 });
+const uflt = calls.filter(function (c) { return c[0] === 'updateSourceFilter'; })[0];
+check('updateSourceFilter 透传 filterName/settings', uflt && uflt[3] === '校正' && uflt[4] === '{"opacity":0.5,"contrast":0.2}', JSON.stringify(uflt));
 
 // ---- 8) v1.1.40：场景过渡 ----
 eng.createTransition('fade_transition', 'gf-transition', 500);

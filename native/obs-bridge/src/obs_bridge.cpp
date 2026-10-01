@@ -573,6 +573,30 @@ static napi_value RemoveSourceFilter(napi_env env, napi_callback_info info) {
   return bool_value(env, true);
 }
 
+// updateSourceFilter(scene, name, filterName, settingsJson)：更新已存在滤镜的设置（obs_source_update）。
+// v1.1.42：滤镜属性面板调参后调用，避免用 add 导致同名滤镜累积。
+static napi_value UpdateSourceFilter(napi_env env, napi_callback_info info) {
+  size_t argc = 4; napi_value argv[4];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  std::string scene, name, filterName, settingsJson;
+  if (argc < 3 || !str_arg(env, argv[0], scene) || !str_arg(env, argv[1], name) || !str_arg(env, argv[2], filterName))
+    return fail(env, "updateSourceFilter 参数不足");
+  if (argc >= 4) str_arg(env, argv[3], settingsJson);
+
+  obs_sceneitem_t* item = find_item(find_scene(scene), name);
+  if (!item) return bool_value(env, false);
+  obs_source_t* src = obs_sceneitem_get_source(item);
+  if (!src) return bool_value(env, false);
+  obs_source_t* filter = obs_source_get_filter_by_name(src, filterName.c_str());
+  if (!filter) return bool_value(env, false);
+
+  if (!settingsJson.empty()) {
+    obs_data_t* settings = obs_data_create_from_json(settingsJson.c_str());
+    if (settings) { obs_source_update(filter, settings); obs_data_release(settings); }
+  }
+  return bool_value(env, true);
+}
+
 // ---------------------------------------------------------------------------
 // P3（v1.1.40）：场景过渡。obs-transitions 插件已在 CI 编译。
 // ---------------------------------------------------------------------------
@@ -782,6 +806,7 @@ static napi_value Init(napi_env env, napi_value exports) {
     DECL("setSourceMuted",   SetSourceMuted),
     DECL("addSourceFilter",  AddSourceFilter),
     DECL("removeSourceFilter", RemoveSourceFilter),
+    DECL("updateSourceFilter", UpdateSourceFilter),
     DECL("createTransition", CreateTransition),
     DECL("setTransitionDuration", SetTransitionDuration),
     DECL("triggerTransition", TriggerTransition),
