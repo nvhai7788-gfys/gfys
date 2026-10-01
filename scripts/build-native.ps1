@@ -59,7 +59,7 @@ if ($content -match 'if\(CMAKE_SIZEOF_VOID_P EQUAL 8\)') {
 
 # 3) cmake configure
 Write-Host "==> cmake configure"
-$cmakeAll = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
+$cmakeOutput = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
   -DOBS_CMAKE_VERSION=3.0.0 `
   -DENABLE_UI=OFF `
   -DENABLE_BROWSER=OFF `
@@ -74,22 +74,18 @@ $cmakeAll = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
   -DENABLE_NVAFX=OFF `
   -DENABLE_NVVFX=OFF `
   -DENABLE_RNNOISE=OFF `
-  -DENABLE_SPEEXDSP=OFF 2>&1 | Out-String
+  -DENABLE_SPEEXDSP=OFF 2>&1
 $cmakeCode = $LASTEXITCODE
 
-# Echo actual values of key switches from CMakeCache.txt (verify -D flags took effect)
-$cacheFile = Join-Path $BUILD "CMakeCache.txt"
-if (Test-Path $cacheFile) {
-  Select-String -Path $cacheFile -Pattern "^(ENABLE_UI|ENABLE_BROWSER|ENABLE_RNNOISE|ENABLE_SPEEXDSP|ENABLE_NVAFX|ENABLE_NVVFX|ENABLE_AJA|ENABLE_WEBRTC):" | ForEach-Object { Write-Host "::error::[cache] $($_.Line)" }
-}
+# Convert all output to plain strings (ErrorRecords -> .ToString()) for reliable searching
+$cmakeLines = @($cmakeOutput | ForEach-Object { $_.ToString() })
 
 if ($cmakeCode -ne 0) {
   Write-Host "::error::cmake configure failed (exit $cmakeCode)"
-  $lines = $cmakeAll -split "`r?`n"
-  # dump error lines from the FULL output
-  $lines | Where-Object { $_ -match "CMake Error|FATAL|fatal error|error:|Could NOT|not found|missing" } | Select-Object -Last 25 | ForEach-Object { Write-Host "::error::[err] $_" }
-  # dump last 60 lines
-  $lines | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -Last 60 | ForEach-Object { Write-Host "::error::[tail] $_" }
+  # error-matching lines (broader pattern)
+  $cmakeLines | Where-Object { $_ -match "CMake Error|FATAL|fatal|error:|Could NOT|not found|missing|Unable|No such" } | Select-Object -Last 20 | ForEach-Object { Write-Host "::error::[err] $_" }
+  # last 20 lines for context
+  $cmakeLines | Select-Object -Last 20 | ForEach-Object { Write-Host "::error::[last] $_" }
   exit 1
 }
 
