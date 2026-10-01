@@ -1,6 +1,6 @@
 {
   "name": "tencent-live-workbench",
-  "version": "1.1.44",
+  "version": "1.1.45",
   "description": "港丰影视直播工作台 - 腾讯云/阿里云直播管理、实时监控在线流、快捷拉流转推",
   "main": "main.js",
   "scripts": {

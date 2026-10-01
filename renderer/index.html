@@ -613,7 +613,7 @@
       <div class="side-version" id="sideVersion">
         <span class="sv-dot"></span>
         <span class="sv-label">港丰影视</span>
-        <span class="sv-text" id="sideVerText">v1.1.44</span>
+        <span class="sv-text" id="sideVerText">v1.1.45</span>
       </div>
       <div style="display:flex;gap:6px;margin-bottom:10px">
         <button class="btn btn-sm btn-primary" id="provTencent" style="flex:1;justify-content:center">腾讯云</button>
@@ -2348,7 +2348,7 @@
 <div class="mask hidden" id="aboutMask" style="z-index:190">
   <div class="modal" style="width:640px">
     <h3>关于与免责声明</h3>
-    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.44</span></div>
+    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.45</span></div>
     <div class="about-scroll">
       <div class="about-sec">
         <h4>一、免责声明</h4>
@@ -3561,12 +3561,27 @@ var NAV_ICON_COLORS = {
   notify: '#fbbf24', rules: '#f87171', users: '#34d399', apidoc: '#3d7bfd',
   settings: '#8fa1c4'
 };
-document.querySelectorAll('.nav-item[data-view]').forEach(function (b) {
-  var c = NAV_ICON_COLORS[b.getAttribute('data-view')];
-  if (c) b.style.setProperty('--ni', c);
-});
-var _aboutBtn = document.getElementById('aboutBtn');
-if (_aboutBtn) _aboutBtn.style.setProperty('--ni', '#a78bfa');
+// v1.1.45：日间主题微调饱和度——白底上降饱和 + 略加深，保证可读不刺眼；夜间保持高亮原色。
+var NAV_ICON_COLORS_LIGHT = {
+  overview: '#0f9d6e', charts: '#2f66d8',
+  monitor: '#dc3f3f', watch: '#0e9bb0', quality: '#c68a08',
+  domains: '#7c5cd6', relay: '#2f66d8', genaddr: '#0f9d6e', templates: '#c68a08',
+  localpush: '#dc3f3f', localrec: '#7c5cd6',
+  caster: '#0e9bb0', room: '#0f9d6e',
+  package: '#2f66d8', servers: '#7c5cd6', nodes: '#0e9bb0',
+  notify: '#c68a08', rules: '#dc3f3f', users: '#0f9d6e', apidoc: '#2f66d8',
+  settings: '#5c6f94'
+};
+function applyNavIconColors(theme) {
+  var map = (theme === 'light') ? NAV_ICON_COLORS_LIGHT : NAV_ICON_COLORS;
+  document.querySelectorAll('.nav-item[data-view]').forEach(function (b) {
+    var c = map[b.getAttribute('data-view')];
+    if (c) b.style.setProperty('--ni', c);
+  });
+  var _aboutBtn = document.getElementById('aboutBtn');
+  if (_aboutBtn) _aboutBtn.style.setProperty('--ni', (theme === 'light' ? '#7c5cd6' : '#a78bfa'));
+}
+applyNavIconColors(resolvedTheme());
 
 // 侧边导航
 document.querySelectorAll('.nav-item').forEach(function (btn) {
@@ -9100,9 +9115,33 @@ function lpSceneAutoAddSource(path) {
   if (typeId === 'ffmpeg_source') s.settings.is_local_file = true;
   // 名称用文件名，OBS 同款（来源名 = 素材名）
   s.name = String(path).replace(/\\/g, '/').split('/').pop() || s.name;
+  // v1.1.45：默认「适合画布」——居中 + 等比缩放铺满（对齐 OBS「适合画面」行为）
+  s.transform = Object.assign(s.transform || {}, { pos: 'center', boundsType: 'OBS_BOUNDS_SCALE_INNER' });
+  lpFitSourceToCanvas(s, path);
   lpSaveScenes();
   lpRenderSources(); lpRenderOverlays();
   return s;
+}
+// v1.1.45：素材自动入场景后的「适合画布」——探测素材尺寸，等比缩放铺满画布并居中。
+// scale 写入固定倍率（保证 ffmpeg overlay 真实缩放）；pos=center 使 overlay 用 (W-w)/2 居中，横竖屏切换自动适配。
+function lpFitSourceToCanvas(s, path) {
+  if (!s || !window.tcapi || !window.tcapi.ffProbe) return;
+  var tf = s.transform || {};
+  var sc = lpActiveScene();
+  var size = (sc && sc.size) || '1920x1080';
+  var wh = String(size).split('x');
+  var cw = Number(wh[0]) || 1920, ch = Number(wh[1]) || 1080;
+  window.tcapi.ffProbe(path).then(function (pr) {
+    if (!pr || !pr.ok || !pr.width || !pr.height) return;
+    // 等比缩放，取「铺满画布」的最小倍率（SCALE_INNER 语义：完整显示、不裁切）
+    var k = Math.min(cw / pr.width, ch / pr.height);
+    if (!isFinite(k) || k <= 0) k = 1;
+    tf.scale = { x: k, y: k };
+    tf.pos = 'center';
+    tf.boundsType = 'OBS_BOUNDS_SCALE_INNER';
+    lpSaveScenes();
+    lpRenderSources(); lpRenderOverlays();
+  }).catch(function () { /* 探测失败保持原尺寸，不打扰用户 */ });
 }
 // 素材移除 → 同步移除场景中对应来源（保持「素材列表 = 场景来源」单一事实源）
 function lpSceneAutoRemoveSource(path) {
@@ -12033,6 +12072,7 @@ function applyTheme() {
   }
   var sel = document.getElementById('stTheme');
   if (sel) sel.value = mode;
+  applyNavIconColors(t);      // v1.1.45：侧边栏彩色图标随主题切换饱和度
   avizResetColors();          // 音频可视化画布的配色也取自 CSS 变量，切主题后必须失效重取
   redrawChartsForTheme();
 }
@@ -12102,7 +12142,7 @@ document.addEventListener('DOMContentLoaded', function () {
 // 版本号显示（登录页徽标 / 设置页），版本来自 package.json（electron app.getVersion）
 (function initVerBadge() {
   try {
-    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.44');
+    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.45');
     var lv = document.getElementById('loginVer'); if (lv) lv.textContent = ver;
     var sv = document.getElementById('stVer'); if (sv) sv.textContent = ver;
     var sv2 = document.getElementById('sideVerText'); if (sv2) sv2.textContent = ver;
