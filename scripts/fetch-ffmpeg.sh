@@ -31,6 +31,12 @@ case "$UNAME" in
     cp -f "$FF" "$BIN/ffmpeg-darwin-$ARCH"
     chmod +x "$BIN/ffmpeg-darwin-$ARCH"
     echo "已写入 bin/ffmpeg-darwin-$ARCH"
+    # 同时产出另一个 arch 的文件名（electron-builder extraResources 引用了 arm64+x64 两个具体文件，
+    # 每个 runner 只产出一个 arch，为避免引用不存在的文件导致打包失败，复制一份到另一个名字）
+    OTHER="x64"; [ "$ARCH" = "x64" ] && OTHER="arm64"
+    cp -f "$FF" "$BIN/ffmpeg-darwin-$OTHER"
+    chmod +x "$BIN/ffmpeg-darwin-$OTHER"
+    echo "已写入 bin/ffmpeg-darwin-$OTHER（冗余副本，规避 extraResources 缺失）"
     ;;
   *)
     # Windows / Linux 归为 win：下载 gyan.dev release essentials（含 ffmpeg.exe）

@@ -24,9 +24,12 @@ mac:
   identity: null
   category: public.app-category.video
   extraResources:
-    # 通配符：每个 mac runner 只产出一个 arch 的 ffmpeg（arm64 或 x64），只打包存在的那个
-    - from: bin/ffmpeg-darwin-*
-      to: bin/
+    # fetch-ffmpeg.sh 会同时产出 arm64 + x64 两个文件名的 ffmpeg（内容为当前 runner 的 arch），
+    # 避免某个 from 因文件不存在而打包失败
+    - from: bin/ffmpeg-darwin-arm64
+      to: bin/ffmpeg-darwin-arm64
+    - from: bin/ffmpeg-darwin-x64
+      to: bin/ffmpeg-darwin-x64
     # libobs 真引擎：原生桥接（.node）+ libobs 运行时模块
     - from: bin/obs-bridge/
       to: obs-bridge/

@@ -59,10 +59,12 @@ cmake --build "$BUILD" --config Release --parallel --target \
 # 5) 编译 obs-bridge（node-gyp）
 cd "$SRC/native/obs-bridge"
 
-# libobs 是 framework，定位其父目录（供 node-gyp 用 -F 链接）
-FW_DIR="$(find "$BUILD" -name 'libobs.framework' -type d | head -1)"
+# libobs 是 framework，定位其父目录（供 node-gyp 用 -F 链接）。
+# 注意：Xcode 15 会生成 EagerLinkingTBDs/ 目录（只含 .tbd 链接存根，无真正 dylib），
+#       必须排除，否则会把空壳 framework 打进安装包导致运行时加载失败。
+FW_DIR="$(find "$BUILD" -name 'libobs.framework' -type d | grep -v 'EagerLinkingTBDs' | head -1)"
 if [ -z "$FW_DIR" ]; then
-  echo "::error::未找到 libobs.framework，请检查编译是否成功" >&2
+  echo "::error::未找到 libobs.framework（真正含 dylib 的那个），请检查编译是否成功" >&2
   exit 1
 fi
 OBS_LIB_DIR="$(dirname "$FW_DIR")"
@@ -76,6 +78,15 @@ export OBS_DEPS_INCLUDE="$OBS/deps"
 # 注意：node-gyp 内置 gyp 不读 shell 环境变量，binding.gyp 的 <(OBS_*_DIR)> 必须经 GYP_DEFINES 传入。
 export GYP_DEFINES="OBS_INCLUDE_DIR=$OBS_INCLUDE_DIR OBS_LIB_DIR=$OBS_LIB_DIR OBS_MODULE_DIR=$OBS_MODULE_DIR OBS_DEPS_INCLUDE=$OBS_DEPS_INCLUDE"
 npx node-gyp rebuild
+
+# 5.5) 设置 rpath：obs_bridge.node 链接了 @rpath/libobs.framework/...，打包后 framework 在
+#      resources/obs/、.node 在 resources/obs-bridge/，需加 @loader_path/../obs 让 DYLD 能找到。
+NODE_BIN="$SRC/native/obs-bridge/build/Release/obs_bridge.node"
+if [ -f "$NODE_BIN" ]; then
+  install_name_tool -add_rpath "@loader_path/../obs" "$NODE_BIN" 2>/dev/null || true
+  install_name_tool -add_rpath "$OBS_LIB_DIR" "$NODE_BIN" 2>/dev/null || true
+  echo "==> 已设置 obs_bridge.node rpath"
+fi
 
 # 6) 落盘到 bin/
 mkdir -p "$BIN/obs-bridge" "$BIN/obs"
