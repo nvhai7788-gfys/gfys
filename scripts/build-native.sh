@@ -28,8 +28,10 @@ if [ ! -d "$OBS/.git" ]; then
 fi
 cd "$OBS"
 
-# 2) 初始化编译必需的 submodule（FTL 输出）
+# 2) 初始化编译必需的 submodule（FTL 输出；browser/websocket 即使 ENABLE_BROWSER=OFF 也需存在）
 git submodule update --init --depth 1 plugins/obs-outputs/ftl-sdk 2>/dev/null || true
+git submodule update --init --depth 1 plugins/obs-browser 2>/dev/null || true
+git submodule update --init --depth 1 plugins/obs-websocket 2>/dev/null || true
 
 # 3) 配置：走新构建系统（自动下载 obs-deps），关 UI/浏览器/脚本/硬件 SDK 插件
 cmake -S "$OBS" -B "$BUILD" -G Ninja \

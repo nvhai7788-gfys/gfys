@@ -33,6 +33,11 @@ git submodule update --init --depth 1 plugins/win-dshow/libdshowcapture
 if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule libdshowcapture 失败 (exit $LASTEXITCODE)"; exit 1 }
 git submodule update --init --depth 1 plugins/obs-outputs/ftl-sdk
 if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule ftl-sdk 失败 (exit $LASTEXITCODE)"; exit 1 }
+# obs-browser/obs-websocket 即使 ENABLE_BROWSER=OFF 也需存在（plugins/CMakeLists.txt 的 check_obs_browser/websocket 无条件校验）
+git submodule update --init --depth 1 plugins/obs-browser
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule obs-browser 失败 (exit $LASTEXITCODE)"; exit 1 }
+git submodule update --init --depth 1 plugins/obs-websocket
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule obs-websocket 失败 (exit $LASTEXITCODE)"; exit 1 }
 
 # 3) cmake configure
 Write-Host "==> cmake configure"
