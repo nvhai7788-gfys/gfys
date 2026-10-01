@@ -110,7 +110,7 @@ jobs:
         if: matrix.target == 'mac'
         run: |
           brew install ffmpeg
-          bash scripts/fetch-ffmpeg.sh 2>&1 | tee ci-last-build-mac.log
+          bash scripts/fetch-ffmpeg.sh 2>&1 | tee -a ci-last-build-mac.log
 
       - name: 获取 ffmpeg（Windows）
         if: matrix.target == 'win'
@@ -120,7 +120,7 @@ jobs:
       # ---------- 打包安装包（含 libobs 原生桥接） ----------
       - name: 打包安装包
         shell: bash
-        run: npx electron-builder --config build/electron-builder.ci.yml ${{ matrix.eb_flags }} 2>&1 | tee -a ci-last-build-win.log
+        run: npx electron-builder --config build/electron-builder.ci.yml ${{ matrix.eb_flags }} 2>&1 | tee -a ci-last-build-${{ matrix.target }}.log
         env:
           # 不打签名：identity 已在配置中置 null
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -128,16 +128,16 @@ jobs:
 
       # ---------- 回传编译日志（调试用：沙箱 agent 无法读 CI 日志，靠此突破） ----------
       - name: 回传编译日志
-        if: always() && matrix.target == 'win'
+        if: always()
         shell: bash
         run: |
           git config user.name "ci-bot"
           git config user.email "ci@localhost"
-          if ls ci-last-build-*.log >/dev/null 2>&1; then
+          if ls ci-last-build-${{ matrix.target }}.log >/dev/null 2>&1; then
             git fetch origin main
             git checkout -B ci-log origin/main
-            git add -f ci-last-build-*.log
-            git commit -m "ci: build log $(date +%s)" || true
+            git add -f ci-last-build-${{ matrix.target }}.log
+            git commit -m "ci: ${{ matrix.target }} build log $(date +%s)" || true
             git push origin HEAD:main || true
           fi
         env:

@@ -7,7 +7,7 @@
 #       在 binding.gyp 里用 <(VAR) 引用（不是 %(VAR)s）。
 #
 #   OBS_INCLUDE_DIR   —— obs-studio/libobs 头文件根（含 graphics/util 子目录）
-#   OBS_LIB_DIR       —— libobs 库所在目录（Windows: obs.lib / mac: libobs.dylib / linux: libobs.so）
+#   OBS_LIB_DIR       —— libobs 库所在目录（Windows: obs.lib / mac: libobs.framework 的父目录 / linux: libobs.so）
 #   OBS_DEPS_INCLUDE  —— obs-studio/deps（可选的 FFmpeg 等头文件目录）
 #   OBS_MODULE_DIR    —— libobs 运行时插件模块目录（obs-plugins 编译产物）
 #
@@ -45,12 +45,18 @@
           }
         }],
         [ "OS=='mac'", {
-          "libraries": [ "<(OBS_LIB_DIR)/libobs.dylib" ],
+          # libobs 在 macOS 是 framework（libobs.framework），需用 -F + -framework 链接。
+          # 注意：node-gyp 在 mac 默认用 make 生成器，xcode_settings.OTHER_LDFLAGS 不生效，
+          #       必须用 ldflags（会原样传给链接器）。OBS_LIB_DIR 指向 framework 的父目录。
+          "libraries": [],
+          "ldflags": [
+            "-F<(OBS_LIB_DIR)",
+            "-framework", "libobs"
+          ],
           "xcode_settings": {
             "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
             "CLANG_CXX_LANGUAGE_STANDARD": "c++17",
-            "MACOSX_DEPLOYMENT_TARGET": "11.0",
-            "OTHER_LDFLAGS": [ "-framework", "Cocoa", "-framework", "CoreVideo", "-framework", "CoreMedia", "-framework", "AVFoundation" ]
+            "MACOSX_DEPLOYMENT_TARGET": "11.0"
           }
         }],
         [ "OS=='linux'", {
