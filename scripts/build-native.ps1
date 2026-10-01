@@ -131,6 +131,8 @@ Push-Location (Join-Path $SRC "native\obs-bridge")
 $env:OBS_INCLUDE_DIR = Join-Path $OBS "libobs"
 $env:OBS_LIB_DIR = Join-Path $BUILD "libobs\Release"
 $env:OBS_MODULE_DIR = $BUILD
+# node-gyp needs distutils (removed in Python 3.12+); install setuptools shim
+python -m pip install setuptools 2>&1 | Out-Null
 npx node-gyp rebuild
 if ($LASTEXITCODE -ne 0) { Write-Host "::error::node-gyp rebuild failed (exit $LASTEXITCODE)"; exit 1 }
 Pop-Location

@@ -51,6 +51,8 @@ cmake --build "$BUILD" --config Release --parallel --target \
 
 # 5) 编译 obs-bridge（node-gyp；npm install 已在 workflow 提前完成）
 cd "$SRC/native/obs-bridge"
+# node-gyp 需要 distutils（Python 3.12+ 已移除）；装 setuptools shim
+python3 -m pip install setuptools 2>/dev/null || true
 OBS_INCLUDE_DIR="$OBS/libobs" \
 OBS_LIB_DIR="$BUILD/libobs" \
 OBS_MODULE_DIR="$BUILD" \
