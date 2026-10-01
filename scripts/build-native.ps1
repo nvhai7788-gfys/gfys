@@ -9,6 +9,13 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
+# 捕获任何终止性异常，输出 ::error 供 annotations 定位（避免静默失败）
+trap {
+  Write-Host "::error::脚本异常: $($_.Exception.Message)"
+  Write-Host "::error::位置: $($_.InvocationInfo.PositionMessage)"
+  Write-Host "::error::行号: $($_.InvocationInfo.ScriptLineNumber)"
+  exit 1
+}
 $SRC = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $TP = Join-Path $SRC "third_party"
 $OBS = Join-Path $TP "obs-studio"
@@ -50,31 +57,24 @@ if ($content -match 'if\(CMAKE_SIZEOF_VOID_P EQUAL 8\)') {
 
 # 3) cmake configure
 Write-Host "==> cmake configure"
-$cmakeArgs = @(
-  "-S", "$OBS",
-  "-B", "$BUILD",
-  "-G", "Visual Studio 17 2022",
-  "-A", "x64",
-  "-DOBS_CMAKE_VERSION=3.0.0",
-  "-DENABLE_UI=OFF",
-  "-DENABLE_BROWSER=OFF",
-  "-DENABLE_SCRIPTING=OFF",
-  "-DENABLE_HEVC=OFF",
-  "-DENABLE_AJA=OFF",
-  "-DENABLE_DECKLINK=OFF",
-  "-DENABLE_VLC=OFF",
-  "-DENABLE_WEBRTC=OFF",
-  "-DENABLE_VST=OFF",
-  "-DENABLE_NATIVE_NVENC=OFF",
-  "-DENABLE_NVAFX=OFF",
-  "-DENABLE_NVVFX=OFF",
-  "-DENABLE_RNNOISE=OFF",
-  "-DENABLE_SPEEXDSP=OFF"
-)
-Write-Host "cmake 参数: $($cmakeArgs -join ' ')"
 $cmakeOutLog = Join-Path $SRC "cmake-out.log"
 $cmakeErrLog = Join-Path $SRC "cmake-err.log"
-& cmake @cmakeArgs 1>$cmakeOutLog 2>$cmakeErrLog
+& cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
+  -DOBS_CMAKE_VERSION=3.0.0 `
+  -DENABLE_UI=OFF `
+  -DENABLE_BROWSER=OFF `
+  -DENABLE_SCRIPTING=OFF `
+  -DENABLE_HEVC=OFF `
+  -DENABLE_AJA=OFF `
+  -DENABLE_DECKLINK=OFF `
+  -DENABLE_VLC=OFF `
+  -DENABLE_WEBRTC=OFF `
+  -DENABLE_VST=OFF `
+  -DENABLE_NATIVE_NVENC=OFF `
+  -DENABLE_NVAFX=OFF `
+  -DENABLE_NVVFX=OFF `
+  -DENABLE_RNNOISE=OFF `
+  -DENABLE_SPEEXDSP=OFF 1>$cmakeOutLog 2>$cmakeErrLog
 $cmakeCode = $LASTEXITCODE
 
 # 回显关键开关在 CMakeCache.txt 里的实际值（确认 -D 是否生效）
