@@ -31,14 +31,15 @@ cd "$OBS"
 # 2) 初始化编译必需的 submodule（FTL 输出）
 git submodule update --init --depth 1 plugins/obs-outputs/ftl-sdk 2>/dev/null || true
 
-# 3) 配置：走新构建系统（自动下载 obs-deps），关 UI/浏览器/脚本，钉死架构
+# 3) 配置：走新构建系统（自动下载 obs-deps），关 UI/浏览器/脚本/硬件 SDK 插件
 cmake -S "$OBS" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
   -DOBS_CMAKE_VERSION=3.0.0 \
   -DENABLE_UI=OFF -DENABLE_BROWSER=OFF -DENABLE_SCRIPTING=OFF \
-  -DENABLE_HEVC=OFF
+  -DENABLE_HEVC=OFF -DENABLE_AJA=OFF -DENABLE_DECKLINK=OFF \
+  -DENABLE_VLC=OFF -DENABLE_WEBRTC=OFF -DENABLE_VST=OFF
 
 # 4) 只编译需要的 target（libobs + 编码/输出/采集插件）
 cmake --build "$BUILD" --config Release --parallel --target \

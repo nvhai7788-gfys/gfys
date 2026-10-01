@@ -41,7 +41,15 @@ $cmakeErr = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
   -DENABLE_UI=OFF `
   -DENABLE_BROWSER=OFF `
   -DENABLE_SCRIPTING=OFF `
-  -DENABLE_HEVC=OFF 2>&1
+  -DENABLE_HEVC=OFF `
+  -DENABLE_AJA=OFF `
+  -DENABLE_DECKLINK=OFF `
+  -DENABLE_VLC=OFF `
+  -DENABLE_WEBRTC=OFF `
+  -DENABLE_VST=OFF `
+  -DENABLE_NATIVE_NVENC=OFF `
+  -DENABLE_NVAFX=OFF `
+  -DENABLE_NVVFX=OFF 2>&1
 $cmakeCode = $LASTEXITCODE
 if ($cmakeCode -ne 0) {
   Write-Host "::error::cmake configure 失败 (exit $cmakeCode)"
