@@ -84,7 +84,10 @@ export OBS_MODULE_DIR="$BUILD"
 export OBS_DEPS_INCLUDE="$OBS/deps"
 # 注意：node-gyp 内置 gyp 不读 shell 环境变量，binding.gyp 的 <(OBS_*_DIR)> 必须经 GYP_DEFINES 传入。
 export GYP_DEFINES="OBS_INCLUDE_DIR=$OBS_INCLUDE_DIR OBS_LIB_DIR=$OBS_LIB_DIR OBS_MODULE_DIR=$OBS_MODULE_DIR OBS_DEPS_INCLUDE=$OBS_DEPS_INCLUDE"
-npx node-gyp rebuild
+# node-gyp 架构：交叉编译时 x86_64 → x64（arm64 runner 上编 Intel 版）
+NODE_ARCH="arm64"
+[ "$ARCH" = "x86_64" ] && NODE_ARCH="x64"
+npx node-gyp rebuild --arch="$NODE_ARCH"
 
 # 5.5) 设置 rpath：obs_bridge.node 链接了 @rpath/libobs.framework/...，打包后 framework 在
 #      resources/obs/、.node 在 resources/obs-bridge/，需加 @loader_path/../obs 让 DYLD 能找到。

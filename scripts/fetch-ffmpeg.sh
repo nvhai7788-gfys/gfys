@@ -13,27 +13,31 @@ mkdir -p "$BIN"
 UNAME="$(uname -s)"
 case "$UNAME" in
   Darwin)
-    # macOS：优先 Homebrew（本机 ffmpeg 为与 runner 匹配的 arch），找不到再尝试 evermeet.cx（x64）
-    if command -v brew >/dev/null 2>&1 && [ -x "$(brew --prefix ffmpeg 2>/dev/null)/bin/ffmpeg" ]; then
-      FF="$(brew --prefix ffmpeg)/bin/ffmpeg"
-    elif [ -x /opt/homebrew/bin/ffmpeg ]; then
-      FF="/opt/homebrew/bin/ffmpeg"
-    elif [ -x /usr/local/bin/ffmpeg ]; then
-      FF="/usr/local/bin/ffmpeg"
-    else
-      echo "未找到 ffmpeg，尝试从 evermeet.cx 下载（x64）…"
+    # 目标架构：优先 ARCH 环境变量（workflow 传 matrix.arch），缺省用 uname -m
+    TARGET="${ARCH:-$(uname -m)}"
+    [ "$TARGET" = "x86_64" ] && TARGET="x64"
+    if [ "$TARGET" = "x64" ]; then
+      # x64（原生 Intel 或 arm64 runner 交叉编译）：evermeet.cx 提供 x64 静态构建（可独立运行）
+      echo "下载 x64 静态 ffmpeg（evermeet.cx）…"
       curl -fsSL -o /tmp/ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" || { echo "下载失败"; exit 1; }
       unzip -o /tmp/ffmpeg.zip -d /tmp/ffmpeg_ext
       FF="/tmp/ffmpeg_ext/ffmpeg"
+    else
+      # arm64：Homebrew 本机 ffmpeg（arch 匹配 runner）
+      if command -v brew >/dev/null 2>&1 && [ -x "$(brew --prefix ffmpeg 2>/dev/null)/bin/ffmpeg" ]; then
+        FF="$(brew --prefix ffmpeg)/bin/ffmpeg"
+      elif [ -x /opt/homebrew/bin/ffmpeg ]; then
+        FF="/opt/homebrew/bin/ffmpeg"
+      else
+        echo "未找到 arm64 ffmpeg"; exit 1
+      fi
     fi
-    ARCH="$(uname -m)"   # arm64 / x86_64
-    [ "$ARCH" = "x86_64" ] && ARCH="x64"
-    cp -f "$FF" "$BIN/ffmpeg-darwin-$ARCH"
-    chmod +x "$BIN/ffmpeg-darwin-$ARCH"
-    echo "已写入 bin/ffmpeg-darwin-$ARCH"
+    cp -f "$FF" "$BIN/ffmpeg-darwin-$TARGET"
+    chmod +x "$BIN/ffmpeg-darwin-$TARGET"
+    echo "已写入 bin/ffmpeg-darwin-$TARGET"
     # 同时产出另一个 arch 的文件名（electron-builder extraResources 引用了 arm64+x64 两个具体文件，
     # 每个 runner 只产出一个 arch，为避免引用不存在的文件导致打包失败，复制一份到另一个名字）
-    OTHER="x64"; [ "$ARCH" = "x64" ] && OTHER="arm64"
+    OTHER="x64"; [ "$TARGET" = "x64" ] && OTHER="arm64"
     cp -f "$FF" "$BIN/ffmpeg-darwin-${OTHER}"
     chmod +x "$BIN/ffmpeg-darwin-${OTHER}"
     echo "已写入 bin/ffmpeg-darwin-${OTHER}（冗余副本，规避 extraResources 缺失）"

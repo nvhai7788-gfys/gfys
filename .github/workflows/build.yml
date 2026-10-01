@@ -36,7 +36,9 @@ jobs:
             arch: arm64
             target: mac
             eb_flags: "--mac dmg --arm64"
-          - os: macos-13
+          # macos-13(Intel) runner 正被 GitHub 淘汰、排队严重，改用 macos-14(arm64) 交叉编译 x64
+          # （obs-deps 是 universal 版，同时含 arm64 + x86_64，Xcode 支持 -arch x86_64 交叉编译）
+          - os: macos-14
             arch: x64
             target: mac
             eb_flags: "--mac dmg --x64"
@@ -111,6 +113,8 @@ jobs:
         run: |
           brew install ffmpeg
           bash scripts/fetch-ffmpeg.sh 2>&1 | tee -a ci-last-build-mac.log
+        env:
+          ARCH: ${{ matrix.arch }}
 
       - name: 获取 ffmpeg（Windows）
         if: matrix.target == 'win'
