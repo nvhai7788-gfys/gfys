@@ -28,11 +28,9 @@
 #include <obs-data.h>
 #include <obs-module.h>
 #include <obs-source.h>
-#include <obs-transition.h>
 #include <util/base.h>
 #include <graphics/vec2.h>
 #include <graphics/graphics.h>
-#include <graphics/texrender.h>
 
 #ifdef _WIN32
 #define DEFAULT_GFX_MODULE "libobs-d3d11"
