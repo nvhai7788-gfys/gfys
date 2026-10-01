@@ -55,23 +55,20 @@ jobs:
       - name: 整理安装包为标准命名
         shell: bash
         run: |
-          set -euo pipefail
           echo "== 下载到的原始文件 =="
           find dist -type f -printf '%s  %p\n' | sort -k2
           mkdir -p release
           V="1.1.39"
-          # Windows NSIS 安装包：dist 下体积最大的 .exe（排除 .blockmap）
-          EXE=$(find dist -type f -name '*.exe' ! -name '*.blockmap' | xargs -r ls -S | head -1)
-          [ -n "$EXE" ] && cp "$EXE" "release/港丰影视直播工作台-${V}-win.exe"
-          # Windows 免安装 ZIP：文件名含 -win.zip（排除 -arm64 之类）
-          ZIP=$(find dist -type f -name '*-win.zip' | head -1)
-          [ -n "$ZIP" ] && cp "$ZIP" "release/港丰影视直播工作台-${V}-win.zip"
-          # macOS arm64 DMG：文件名含 -arm64.dmg
-          DMG_ARM64=$(find dist -type f -name '*-arm64.dmg' ! -name '*.blockmap' | head -1)
-          [ -n "$DMG_ARM64" ] && cp "$DMG_ARM64" "release/港丰影视直播工作台-${V}-arm64.dmg"
-          # macOS x64 DMG：.dmg 里排除 -arm64 与 .blockmap（体积约 152MB）
-          DMG_X64=$(find dist -type f -name '*.dmg' ! -name '*-arm64.dmg' ! -name '*.blockmap' | xargs -r ls -S | head -1)
-          [ -n "$DMG_X64" ] && cp "$DMG_X64" "release/港丰影视直播工作台-${V}-x64.dmg"
+          # 用数组收集候选文件，避免 pipefail + head 的 SIGPIPE 问题
+          mapfile -t EXES < <(find dist -type f -name '*.exe' ! -name '*.blockmap' | sort)
+          mapfile -t ZIPS < <(find dist -type f -name '*-win.zip' | sort)
+          mapfile -t DMG_ARM < <(find dist -type f -name '*-arm64.dmg' ! -name '*.blockmap' | sort)
+          mapfile -t DMG_X64 < <(find dist -type f -name '*.dmg' ! -name '*-arm64.dmg' ! -name '*.blockmap' | sort)
+          echo "EXES=${#EXES[@]} ZIPS=${#ZIPS[@]} DMG_ARM=${#DMG_ARM[@]} DMG_X64=${#DMG_X64[@]}"
+          if [ "${#EXES[@]}" -gt 0 ]; then cp "${EXES[0]}" "release/港丰影视直播工作台-${V}-win.exe"; fi
+          if [ "${#ZIPS[@]}" -gt 0 ]; then cp "${ZIPS[0]}" "release/港丰影视直播工作台-${V}-win.zip"; fi
+          if [ "${#DMG_ARM[@]}" -gt 0 ]; then cp "${DMG_ARM[0]}" "release/港丰影视直播工作台-${V}-arm64.dmg"; fi
+          if [ "${#DMG_X64[@]}" -gt 0 ]; then cp "${DMG_X64[0]}" "release/港丰影视直播工作台-${V}-x64.dmg"; fi
           echo "== 整理后的标准文件 =="
           ls -lh release/
 
