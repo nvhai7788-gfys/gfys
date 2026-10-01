@@ -37,8 +37,12 @@ git submodule update --init --depth 1 plugins/obs-browser 2>/dev/null || true
 git submodule update --init --depth 1 plugins/obs-websocket 2>/dev/null || true
 
 # 3) 配置：Xcode generator + 新构建系统（自动下载 obs-deps），关 UI/浏览器/脚本/硬件 SDK 插件
+#    必须显式设 CMAKE_OSX_SYSROOT（obs-studio 用它正则提取 SDK 版本，空会报 FATAL_ERROR）
+SDKROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || echo "")"
+echo "==> macOS SDK：$SDKROOT"
 cmake -S "$OBS" -B "$BUILD" -G Xcode \
   -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
+  -DCMAKE_OSX_SYSROOT="$SDKROOT" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
   -DOBS_CMAKE_VERSION=3.0.0 \
   -DENABLE_UI=OFF -DENABLE_BROWSER=OFF -DENABLE_SCRIPTING=OFF \
