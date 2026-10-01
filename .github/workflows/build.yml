@@ -83,8 +83,16 @@ jobs:
         if: matrix.target == 'win'
         shell: pwsh
         run: |
-          powershell -ExecutionPolicy Bypass -File scripts/build-native.ps1 *>&1 | Tee-Object ci-last-build-win.log
-          exit $LASTEXITCODE
+          $log = "ci-last-build-win.log"
+          powershell -ExecutionPolicy Bypass -File scripts/build-native.ps1 *>&1 | Tee-Object $log
+          $code = $LASTEXITCODE
+          Write-Host "==> build-native 退出码: $code"
+          if ($code -ne 0) {
+            Write-Host "::error::build-native 失败 (exit $code)"
+            Get-Content $log | Select-String -Pattern "error|Error|fatal|FATAL|not found|missing|Missing|Could NOT|失败|异常" | Select-Object -Last 40 | ForEach-Object { Write-Host "::error::$($_.Line)" }
+            Get-Content $log -Tail 30 | ForEach-Object { Write-Host "::error::[tail] $_" }
+            exit $code
+          }
         env:
           OBS_VER: ${{ env.OBS_VER }}
 
