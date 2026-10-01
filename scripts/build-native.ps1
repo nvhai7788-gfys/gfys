@@ -68,10 +68,21 @@ if ($wcContent -match 'add_subdirectory\(graphics-hook\)') {
   Write-Host "==> patched win-capture (skip graphics-hook)"
 }
 
+# 2.7) patch: disable warnings-as-errors (/WX). Old C code (ftl-sdk) triggers C5286 in VS2022,
+#      which becomes a hard error (C2220) under /WX. We are building a release, not CI-polish.
+$cc = Join-Path $OBS "cmake\Modules\CompilerConfig.cmake"
+$c = Get-Content $cc -Raw
+if ($c -match '/WX') {
+  $c = $c -replace '/WX', '/WX-'
+  Set-Content -Path $cc -Value $c -NoNewline
+  Write-Host "==> patched CompilerConfig.cmake (disable /WX)"
+}
+
 # 3) cmake configure
 Write-Host "==> cmake configure"
 $cmakeOutput = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
   -DOBS_CMAKE_VERSION=3.0.0 `
+  -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF `
   -DENABLE_UI=OFF `
   -DENABLE_BROWSER=OFF `
   -DENABLE_SCRIPTING=OFF `
