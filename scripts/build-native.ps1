@@ -36,13 +36,22 @@ if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule ftl-sdk 失败 (exit $
 
 # 3) cmake configure
 Write-Host "==> cmake configure"
-cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
+$cmakeErr = & cmake -S $OBS -B $BUILD -G "Visual Studio 17 2022" -A x64 `
   -DOBS_CMAKE_VERSION=3.0.0 `
   -DENABLE_UI=OFF `
   -DENABLE_BROWSER=OFF `
   -DENABLE_SCRIPTING=OFF `
-  -DENABLE_HEVC=OFF
-if ($LASTEXITCODE -ne 0) { Write-Host "::error::cmake configure 失败 (exit $LASTEXITCODE)"; exit 1 }
+  -DENABLE_HEVC=OFF 2>&1
+$cmakeCode = $LASTEXITCODE
+if ($cmakeCode -ne 0) {
+  Write-Host "::error::cmake configure 失败 (exit $cmakeCode)"
+  # 把含错误关键词的最后几行通过 ::error 输出（check-run annotations API 可读）
+  $errLines = @($cmakeErr) | Where-Object { $_ -match "Error|error|fatal|not found|No such|CMake" } | Select-Object -Last 12
+  foreach ($l in $errLines) { Write-Host "::error::$l" }
+  # 最后 20 行透传到日志
+  @($cmakeErr) | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
+  exit 1
+}
 
 # 4) cmake build
 Write-Host "==> cmake build libobs + plugins"
