@@ -1,19 +1,21 @@
-# build-native.ps1 —— Windows 编译 libobs（obs-studio）+ obs-bridge 原生桥接
+# build-native.ps1 -- Windows: compile libobs (obs-studio) + obs-bridge native addon.
 #
-# 关键：用 -DOBS_CMAKE_VERSION=3.0.0 走新构建系统（configure 自动下载 obs-deps），关 UI/浏览器/脚本。
-# 注意：不能用 $ErrorActionPreference="Stop" + "2>&1" 捕获——原生命令的 stderr（如 git 进度）
-#       会被包装成 ErrorRecord 触发 Stop 导致脚本在 clone 阶段就中断。
-#       这里用 "Continue" + 每个外部命令后检查 $LASTEXITCODE，失败输出 ::error 再 exit。
+# Key: use -DOBS_CMAKE_VERSION=3.0.0 to enter the NEW build system (configure auto-downloads obs-deps).
+#      Disable UI/browser/scripting to avoid Qt and CEF.
+# IMPORTANT: do NOT use $ErrorActionPreference="Stop" + "2>&1" capture -- native stderr (git progress)
+#            gets wrapped as ErrorRecord and aborts the script during clone. Use "Continue" + check
+#            $LASTEXITCODE after each native command.
+# IMPORTANT: this file MUST stay pure ASCII (no CJK). Windows PowerShell 5.1 reads .ps1 as ANSI
+#            unless a UTF-8 BOM is present; non-ASCII bytes break the parser.
 param(
   [string]$OBS_VER = "30.2.3"
 )
 
 $ErrorActionPreference = "Continue"
-# 捕获任何终止性异常，输出 ::error 供 annotations 定位（避免静默失败）
+# Catch any terminating exception and surface it as ::error (so annotations show it).
 trap {
-  Write-Host "::error::脚本异常: $($_.Exception.Message)"
-  Write-Host "::error::位置: $($_.InvocationInfo.PositionMessage)"
-  Write-Host "::error::行号: $($_.InvocationInfo.ScriptLineNumber)"
+  Write-Host "::error::script exception: $($_.Exception.Message)"
+  Write-Host "::error::at line $($_.InvocationInfo.ScriptLineNumber)"
   exit 1
 }
 $SRC = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -28,31 +30,31 @@ New-Item -ItemType Directory -Force -Path $TP | Out-Null
 if (-not (Test-Path (Join-Path $OBS ".git"))) {
   Write-Host "==> git clone obs-studio $OBS_VER"
   git clone --depth 1 --branch $OBS_VER https://github.com/obsproject/obs-studio.git $OBS
-  if ($LASTEXITCODE -ne 0) { Write-Host "::error::git clone 失败 (exit $LASTEXITCODE)"; exit 1 }
+  if ($LASTEXITCODE -ne 0) { Write-Host "::error::git clone failed (exit $LASTEXITCODE)"; exit 1 }
 }
 
 Push-Location $OBS
-if (-not $?) { Write-Host "::error::Push-Location $OBS 失败"; exit 1 }
+if (-not $?) { Write-Host "::error::Push-Location failed"; exit 1 }
 
-# 2) submodule
+# 2) submodule init
 Write-Host "==> submodule init"
 git submodule update --init --depth 1 plugins/win-dshow/libdshowcapture
-if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule libdshowcapture 失败 (exit $LASTEXITCODE)"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule libdshowcapture failed (exit $LASTEXITCODE)"; exit 1 }
 git submodule update --init --depth 1 plugins/obs-outputs/ftl-sdk
-if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule ftl-sdk 失败 (exit $LASTEXITCODE)"; exit 1 }
-# obs-browser/obs-websocket 即使 ENABLE_BROWSER=OFF 也需存在（plugins/CMakeLists.txt 的 check_obs_browser/websocket 无条件校验）
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule ftl-sdk failed (exit $LASTEXITCODE)"; exit 1 }
+# obs-browser / obs-websocket are required to exist even with ENABLE_BROWSER=OFF (unconditional check)
 git submodule update --init --depth 1 plugins/obs-browser
-if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule obs-browser 失败 (exit $LASTEXITCODE)"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule obs-browser failed (exit $LASTEXITCODE)"; exit 1 }
 git submodule update --init --depth 1 plugins/obs-websocket
-if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule obs-websocket 失败 (exit $LASTEXITCODE)"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::submodule obs-websocket failed (exit $LASTEXITCODE)"; exit 1 }
 
-# 2.5) patch：跳过 64 位构建自动触发的 Win32 子 configure（我只要 x64；子 configure 缺 glslc/glslangValidator 会拖垮主 configure）
+# 2.5) patch: skip the Win32 sub-configure auto-triggered on 64-bit builds (we only need x64)
 $defaults = Join-Path $OBS "cmake\windows\defaults.cmake"
 $content = Get-Content $defaults -Raw
 if ($content -match 'if\(CMAKE_SIZEOF_VOID_P EQUAL 8\)') {
   $content = $content -replace 'if\(CMAKE_SIZEOF_VOID_P EQUAL 8\)', 'if(FALSE AND CMAKE_SIZEOF_VOID_P EQUAL 8)'
   Set-Content -Path $defaults -Value $content -NoNewline
-  Write-Host "==> patched defaults.cmake（跳过 Win32 子 configure）"
+  Write-Host "==> patched defaults.cmake (skip Win32 sub-configure)"
 }
 
 # 3) cmake configure
@@ -77,20 +79,18 @@ $cmakeErrLog = Join-Path $SRC "cmake-err.log"
   -DENABLE_SPEEXDSP=OFF 1>$cmakeOutLog 2>$cmakeErrLog
 $cmakeCode = $LASTEXITCODE
 
-# 回显关键开关在 CMakeCache.txt 里的实际值（确认 -D 是否生效）
+# Echo actual values of key switches from CMakeCache.txt (verify -D flags took effect)
 $cacheFile = Join-Path $BUILD "CMakeCache.txt"
 if (Test-Path $cacheFile) {
-  Write-Host "==> 关键开关实际值："
+  Write-Host "==> key switch values from CMakeCache.txt:"
   Select-String -Path $cacheFile -Pattern "^(ENABLE_UI|ENABLE_BROWSER|ENABLE_RNNOISE|ENABLE_SPEEXDSP|ENABLE_NVAFX|ENABLE_NVVFX|ENABLE_AJA|ENABLE_WEBRTC):" | ForEach-Object { Write-Host $_.Line }
 }
 
 if ($cmakeCode -ne 0) {
-  Write-Host "::error::cmake configure 失败 (exit $cmakeCode)"
-  # stderr 是 cmake 错误的来源，先 dump stderr 末尾
+  Write-Host "::error::cmake configure failed (exit $cmakeCode)"
   if (Test-Path $cmakeErrLog) {
     Get-Content $cmakeErrLog -Tail 40 | ForEach-Object { Write-Host "::error::[stderr] $_" }
   }
-  # 再 dump stdout 末尾（summary / 上下文）
   if (Test-Path $cmakeOutLog) {
     Get-Content $cmakeOutLog -Tail 20 | ForEach-Object { Write-Host "::error::[stdout] $_" }
   }
@@ -102,21 +102,21 @@ Write-Host "==> cmake build libobs + plugins"
 cmake --build $BUILD --config Release --parallel --target `
   libobs obs-x264 obs-ffmpeg obs-outputs obs-transitions obs-filters `
   win-dshow win-capture win-wasapi win-mf
-if ($LASTEXITCODE -ne 0) { Write-Host "::error::cmake build 失败 (exit $LASTEXITCODE)"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::cmake build failed (exit $LASTEXITCODE)"; exit 1 }
 
 Pop-Location
 
-# 5) node-gyp 编译 obs-bridge
+# 5) node-gyp build obs-bridge
 Write-Host "==> node-gyp build obs-bridge"
 Push-Location (Join-Path $SRC "native\obs-bridge")
 $env:OBS_INCLUDE_DIR = Join-Path $OBS "libobs"
 $env:OBS_LIB_DIR = Join-Path $BUILD "libobs\Release"
 $env:OBS_MODULE_DIR = $BUILD
 npx node-gyp rebuild
-if ($LASTEXITCODE -ne 0) { Write-Host "::error::node-gyp rebuild 失败 (exit $LASTEXITCODE)"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Host "::error::node-gyp rebuild failed (exit $LASTEXITCODE)"; exit 1 }
 Pop-Location
 
-# 6) 落盘到 bin/
+# 6) copy artifacts to bin/
 New-Item -ItemType Directory -Force -Path (Join-Path $BIN "obs-bridge") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $BIN "obs\bin\64bit") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $BIN "obs\data") | Out-Null
@@ -127,4 +127,4 @@ Get-ChildItem -Path $BUILD -Recurse -Filter *.dll | Where-Object { $_.FullName -
 }
 if (Test-Path (Join-Path $BUILD "rundir")) { Copy-Item -Recurse -Force (Join-Path $BUILD "rundir\*") (Join-Path $BIN "obs\data\") }
 
-Write-Host "::notice::build-native 完成"
+Write-Host "::notice::build-native done"
