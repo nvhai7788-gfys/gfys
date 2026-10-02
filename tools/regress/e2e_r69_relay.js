@@ -41,7 +41,7 @@ function loadMain() {
     shell: { openExternal: () => {}, openPath: () => {} },
     dialog: { showOpenDialog: () => Promise.resolve({ canceled: true }) },
     Notification: function () { return { show: () => {} }; },
-    screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1440, height: 900 } }) },
+    screen: { getPrimaryDisplay: () => ({ id: 1, label: 'primary', bounds: { x: 0, y: 0, width: 1440, height: 900 }, workAreaSize: { width: 1440, height: 900 } }), getAllDisplays: () => [{ id: 1, label: 'primary', bounds: { x: 0, y: 0, width: 1440, height: 900 }, workAreaSize: { width: 1440, height: 900 } }], on: () => {} },
     Menu: { buildFromTemplate: () => ({}), setApplicationMenu: () => {} },
     nativeImage: { createFromPath: () => ({}) },
     Tray: function () { return { on: () => {}, setToolTip: () => {}, setContextMenu: () => {} }; }
@@ -49,7 +49,7 @@ function loadMain() {
   const sandbox = { console, process, Buffer, setTimeout, clearTimeout, setInterval, clearInterval,
     Promise, JSON, Math, Date, Array, Object, String, Number, Boolean, Error, RegExp,
     __dirname: ROOT, __filename: path.join(ROOT, 'main.js'), module: { exports: {} }, exports: {},
-    require: (m) => (m === 'electron' ? stubElectron : require(m)) };
+    require: (m) => (m === 'electron' ? stubElectron : require(m.startsWith('.') ? path.resolve(ROOT, m) : m)) };
   sandbox.global = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(src + '\n;__api = { relayIngest: relayIngest, relayResetCfg: relayResetCfg, PLAYER_CANDIDATES: PLAYER_CANDIDATES, detectPlayers: detectPlayers, muxForUrl: muxForUrl, ffNum: ffNum };' +

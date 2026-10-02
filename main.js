@@ -7,7 +7,7 @@
  *    （见各云官网 OpenAPI 文档）。
  *  - libobs 真引擎经 native/obs-bridge 桥接，引擎来自 OBS Studio（GPL-2.0），见 THIRD_PARTY_NOTICES.md。
  */
-const { app, BrowserWindow, ipcMain, shell, dialog, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, Notification, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');   // r69：detectPlayers 需要展开 ~ 家目录路径
@@ -1648,6 +1648,149 @@ ipcMain.handle('app:openPreview', (_e, url, title, meta) => {
   }
   openPreview(list[0], title, list, meta);
   return Promise.resolve({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// v1.1.48：本机 PGM 输出（把 PGM 画面送到指定显示器 = HDMI 外接屏 / 采集卡）
+//
+// 难点：主窗的 PGM 是主窗里的一个 <video>/<img> 元素，跨窗口传不了元素句柄；
+// captureStream() 传流也会被 Chromium 的跨窗口限制卡住。所以这里不传画面，
+// 只传「源配置」——由输出窗拿同一份 source 自己起播。
+//
+// 关于采集卡：绝大多数采集卡（Elgato Cam Link / 圆刚 GC 系列等）的 HDMI IN
+// 会被系统枚举成一块显示器，因此「选它」就等于把 PGM 送进采集卡，无需额外代码。
+// 只有输入侧的纯 USB 采集棒不具备输出能力，列表里自然看不到。
+// ---------------------------------------------------------------------------
+let outWindow = null;
+let outState = { open: false, displayId: null, fit: 'contain', info: false, source: null };
+
+function outDisplays() {
+  const primary = screen.getPrimaryDisplay();
+  return screen.getAllDisplays().map((d, i) => ({
+    id: d.id,
+    label: (d.label || ('显示器 ' + (i + 1))) + ' · ' + d.bounds.width + '×' + d.bounds.height
+      + (d.id === primary.id ? '（主显示器）' : ''),
+    primary: d.id === primary.id,
+    bounds: d.bounds
+  }));
+}
+function outFindDisplay(id) {
+  const all = screen.getAllDisplays();
+  return all.filter((d) => String(d.id) === String(id))[0] || screen.getPrimaryDisplay();
+}
+function outApplyBounds(d) {
+  if (!outWindow || outWindow.isDestroyed()) return;
+  const b = d.bounds;
+  outWindow.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
+}
+function outBroadcast(kind, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.webContents.send(kind, payload); } catch (e) { /* 主窗已关 */ }
+  }
+}
+function outCreateWindow(displayId) {
+  const d = outFindDisplay(displayId);
+  outWindow = new BrowserWindow({
+    width: d.bounds.width, height: d.bounds.height,
+    x: d.bounds.x, y: d.bounds.y,
+    frame: false,             // 无边框：送屏时不能出现标题栏
+    focusable: false,         // 点了输出，输入焦点还在主窗，操作不被打断
+    fullscreenable: false,
+    skipTaskbar: true,        // 送采集卡时不多一块任务栏图标
+    backgroundColor: '#000000',
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      // output.html 为本地 file:// 页面，素材 file:// 与 mpegts/hls 拉流需绕过同源策略
+      webSecurity: false,
+      autoplayPolicy: 'no-user-gesture-required',
+      backgroundThrottling: false
+    }
+  });
+  outWindow.loadFile(path.join(__dirname, 'renderer', 'output.html'));
+  // 立即铺一次：窗口创建时已按 bounds 定位，但部分平台（macOS 刘海屏 / 缩放屏）会在
+  // 显示后再修正一次可用区，这里 + ready-to-show 双保险，避免出现留白边。
+  outApplyBounds(outFindDisplay(outState.displayId));
+  outWindow.once('ready-to-show', () => {
+    if (!outWindow || outWindow.isDestroyed()) return;
+    // showInactive：不抢焦点（配合 focusable:false）
+    try { outWindow.showInactive(); } catch (e) { outWindow.show(); }
+    outApplyBounds(outFindDisplay(outState.displayId));
+  });
+  outWindow.on('closed', () => {
+    outWindow = null;
+    outState.open = false;
+    outBroadcast('out:state', outState);
+  });
+}
+ipcMain.handle('out:displays', () => ({ ok: true, displays: outDisplays() }));
+ipcMain.handle('out:state', () => ({ ok: true, state: outState }));
+ipcMain.handle('out:get', () => ({
+  ok: true,
+  open: !!outState.open,
+  displayId: outState.displayId,
+  source: outState.source,
+  cfg: { fit: outState.fit, info: outState.info }
+}));
+ipcMain.handle('out:open', (_e, displayId) => {
+  const list = outDisplays();
+  if (!list.length) return { ok: false, error: '未检测到显示器' };
+  const target = (displayId != null && displayId !== '' && displayId !== 'undefined')
+    ? displayId : list[0].id;
+  outState.displayId = target;
+  if (!outWindow || outWindow.isDestroyed()) outCreateWindow(target);
+  else outApplyBounds(outFindDisplay(target));
+  outState.open = true;
+  // 开窗后立刻下发一次，避免输出窗 ready 晚于这次 open 导致白屏
+  if (outWindow && !outWindow.isDestroyed()) {
+    outWindow.webContents.send('out:cfg', { fit: outState.fit, info: outState.info });
+    if (outState.source) outWindow.webContents.send('out:source', outState.source);
+  }
+  outBroadcast('out:state', outState);
+  return { ok: true, state: outState };
+});
+ipcMain.handle('out:close', () => {
+  if (outWindow && !outWindow.isDestroyed()) outWindow.close();
+  outWindow = null;
+  outState.open = false;
+  outBroadcast('out:state', outState);
+  return { ok: true, state: outState };
+});
+ipcMain.handle('out:source', (_e, src) => {
+  outState.source = src || null;
+  if (outWindow && !outWindow.isDestroyed()) outWindow.webContents.send('out:source', outState.source);
+  return { ok: true };
+});
+ipcMain.handle('out:style', (_e, o) => {
+  const c = (o && typeof o === 'object') ? o : {};
+  if (c.fit) outState.fit = c.fit;
+  if (c.info !== undefined) outState.info = !!c.info;
+  if (outWindow && !outWindow.isDestroyed()) {
+    outWindow.webContents.send('out:cfg', { fit: outState.fit, info: outState.info });
+  }
+  return { ok: true, state: outState };
+});
+// 热插拔：目标屏被拔掉 → 窗口自动移到主显示器并回传 out:moved，界面同步提示
+screen.on('display-removed', (_e, d) => {
+  if (!outWindow || outWindow.isDestroyed()) return;
+  if (!d || String(d.id) !== String(outState.displayId)) return;
+  const primary = screen.getPrimaryDisplay();
+  outState.displayId = primary.id;
+  outApplyBounds(primary);
+  outBroadcast('out:moved', { displayId: primary.id, label: primary.label || '主显示器' });
+  outBroadcast('out:state', outState);
+});
+screen.on('display-metrics-changed', (_e, d, changes) => {
+  if (!outWindow || outWindow.isDestroyed()) return;
+  if (!d || String(d.id) !== String(outState.displayId)) return;
+  // 分辨率 / 位置变化（含旋转）时重新铺满，否则会留黑边或溢出
+  if (changes && (changes.includes && (changes.includes('bounds') || changes.includes('workArea')))) {
+    outApplyBounds(outFindDisplay(outState.displayId));
+  } else {
+    outApplyBounds(outFindDisplay(outState.displayId));
+  }
 });
 
 // ---------------------------------------------------------------------------

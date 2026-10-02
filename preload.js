@@ -44,6 +44,18 @@ contextBridge.exposeInMainWorld('tcapi', {
   obsCreateTransition: (typeId, name, durationMs) => ipcRenderer.invoke('obs:createTransition', typeId, name, durationMs),
   obsTriggerTransition: (sceneName) => ipcRenderer.invoke('obs:triggerTransition', sceneName),
   obsPreview: (width, height) => ipcRenderer.invoke('obs:preview', width, height),
+  // v1.1.48：本机 PGM 输出（送 HDMI 外接屏 / 采集卡）
+  outDisplays: () => ipcRenderer.invoke('out:displays'),
+  outState: () => ipcRenderer.invoke('out:state'),
+  outGet: () => ipcRenderer.invoke('out:get'),
+  outOpen: (displayId) => ipcRenderer.invoke('out:open', displayId),
+  outClose: () => ipcRenderer.invoke('out:close'),
+  outSource: (src) => ipcRenderer.invoke('out:source', src),
+  outStyle: (o) => ipcRenderer.invoke('out:style', o),
+  onOutSource: (cb) => ipcRenderer.on('out:source', (_e, data) => cb(data)),
+  onOutCfg: (cb) => ipcRenderer.on('out:cfg', (_e, data) => cb(data)),
+  onOutState: (cb) => ipcRenderer.on('out:state', (_e, data) => cb(data)),
+  onOutMoved: (cb) => ipcRenderer.on('out:moved', (_e, data) => cb(data)),
   onFfLog: (cb) => ipcRenderer.on('ff:log', (_e, data) => cb(data)),
   onFfProgress: (cb) => ipcRenderer.on('ff:progress', (_e, data) => cb(data)),
   onFfRestarted: (cb) => ipcRenderer.on('ff:restarted', (_e, data) => cb(data))

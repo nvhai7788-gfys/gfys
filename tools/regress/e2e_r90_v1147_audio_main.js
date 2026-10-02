@@ -26,7 +26,7 @@ function loadMainFns() {
     shell: { openExternal: () => {}, openPath: () => {}, showItemInFolder: () => {} },
     dialog: { showOpenDialog: () => Promise.resolve({ canceled: true }), showMessageBox: () => {}, showSaveDialog: () => {} },
     Notification: function () { return { show: () => {} }; },
-    screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1440, height: 900 } }) },
+    screen: { getPrimaryDisplay: () => ({ id: 1, label: 'primary', bounds: { x: 0, y: 0, width: 1440, height: 900 }, workAreaSize: { width: 1440, height: 900 } }), getAllDisplays: () => [{ id: 1, label: 'primary', bounds: { x: 0, y: 0, width: 1440, height: 900 }, workAreaSize: { width: 1440, height: 900 } }], on: () => {} },
     Menu: { buildFromTemplate: () => ({ popup: () => {} }), setApplicationMenu: () => {} },
     nativeImage: { createFromPath: () => ({}) },
     Tray: function () { return { on: () => {}, setToolTip: () => {}, setContextMenu: () => {} }; }

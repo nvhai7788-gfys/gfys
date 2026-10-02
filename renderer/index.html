@@ -607,7 +607,7 @@
     <div class="brand">
       <svg viewBox="0 0 24 24"><path fill="#3d7bfd" d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2z"/><path fill="#22d3ee" d="M12 6a6 6 0 1 0 6 6h-2a4 4 0 1 1-4-4V6z"/><circle fill="#3d7bfd" cx="12" cy="12" r="2.4"/></svg>
       港丰影视直播工作台
-      <span class="top-ver" id="topVerText">v1.1.47</span>
+      <span class="top-ver" id="topVerText">v1.1.48</span>
     </div>
     <span class="conn-badge" id="connBadge"><span class="dot"></span><span id="connText">未连接</span></span>
     <div class="spacer"></div>
@@ -623,7 +623,7 @@
       <div class="side-version" id="sideVersion">
         <span class="sv-dot"></span>
         <span class="sv-label">港丰影视</span>
-        <span class="sv-text" id="sideVerText">v1.1.47</span>
+        <span class="sv-text" id="sideVerText">v1.1.48</span>
       </div>
       <div class="nav-group">总览</div>
       <button class="nav-item active" data-view="overview">
@@ -1652,6 +1652,35 @@
           </div>
         </div>
 
+        <!-- v1.1.48：本机 PGM 输出（送 HDMI 外接屏 / 采集卡）。
+             采集卡说明：绝大多数采集卡的 HDMI IN 会被系统枚举成一块显示器，选它 = 把 PGM 送进采集卡。 -->
+        <div class="card" style="margin-top:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+            <h3 style="font-size:14px;margin:0">🖥 本机输出（送 HDMI / 采集卡）</h3>
+            <div style="display:flex;gap:6px;align-items:center">
+              <button class="btn btn-sm btn-primary" id="lpOutOpenBtn">▶ 开始输出</button>
+              <button class="btn btn-sm" id="lpOutCloseBtn" style="display:none">⏹ 停止输出</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <div><label>目标显示器</label>
+              <select id="lpOutDisplay"><option value="">（点「刷新显示器」读取）</option></select>
+              <button class="btn btn-sm" id="lpOutRefreshBtn" style="margin-top:6px">刷新显示器</button>
+            </div>
+            <div><label>铺放方式</label>
+              <select id="lpOutFit">
+                <option value="contain" selected>等比留边（contain）</option>
+                <option value="cover">铺满裁切（cover）</option>
+                <option value="stretch">拉伸填满（stretch）</option>
+              </select>
+              <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-weight:400">
+                <input type="checkbox" id="lpOutInfo"> 显示来源信息条
+              </label>
+            </div>
+          </div>
+          <div class="kv" id="lpOutNote" style="margin-top:8px">把 PGM 画面送到指定显示器：HDMI 外接屏即导播监视器；多数采集卡的 HDMI IN 会被系统枚举成显示器，选它即送进采集卡。输出窗无边框、不可聚焦、跳过任务栏；收起请用这里的「⏹ 停止输出」。</div>
+        </div>
+
         <!-- v1.1.32：推流质量图表（自工作室卡片拆出，移到本地推流菜单下方） -->
         <div class="card" id="lpQCard" style="margin-top:14px">
           <h3 style="font-size:14px;margin:0 0 6px">📈 推流质量（实时）</h3>
@@ -2433,7 +2462,7 @@
 <div class="mask hidden" id="aboutMask" style="z-index:190">
   <div class="modal" style="width:640px">
     <h3>关于与免责声明</h3>
-    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.47</span></div>
+    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.48</span></div>
     <div class="about-scroll">
       <div class="about-sec">
         <h4>一、免责声明</h4>
@@ -9671,6 +9700,9 @@ function lpRenderOverlays() {
   }
   // v1.1.33：PVM/PGM 横竖屏跟随场景
   lpApplyStudioOrient();
+  // v1.1.48：所有改变 PGM 的入口（切源 / 换素材 / 转场 / 删来源）最后都会走一次本函数，
+  // 一处挂钩全覆盖 → 输出窗画面自动跟随 PGM（内部按 JSON 指纹去重，不重复下发）
+  try { lpOutSyncSource(); } catch (e) { /* 输出不可用时不应拖累主窗渲染 */ }
 }
 function lpStageRender() {
   var scene = lpActiveScene();
@@ -10350,6 +10382,124 @@ function lpAudioLevelAuto() {
     }, 5000);
   }
 }
+// ===================== v1.1.48：本机 PGM 输出（送 HDMI / 采集卡） =====================
+// 主窗的 PGM 是主窗里的元素，跨窗口传不了句柄 → 只传「源配置」，由输出窗自己起播。
+var lpOutFp = '';              // 上一次下发的指纹（JSON），相同则不重复下发
+var lpOutOpen = false;
+var lpOutDisplays = [];
+function lpOutBasename(p) { return String(p || '').replace(/\\/g, '/').split('/').pop() || '(未命名)'; }
+// 把当前 PGM 来源翻译成输出窗能播的 { kind, cfg, name }
+// 优先取 Program 场景里的媒体/图片来源（工作室模式下 PGM 就是它），回退到当前推流来源配置
+function lpOutSourcePayload() {
+  var sc = (window.SE && SE.programScene) ? SE.programScene() : null;
+  if (sc && sc.sources && sc.sources.length) {
+    for (var i = 0; i < sc.sources.length; i++) {
+      var s = sc.sources[i];
+      var st = s.settings || {};
+      if (s.type === 'image_source' && st.file) {
+        return { kind: 'image', cfg: { path: st.file }, name: s.name || lpOutBasename(st.file) };
+      }
+      if (s.type === 'ffmpeg_source' && st.local_file) {
+        return {
+          kind: lpIsImagePath(st.local_file) ? 'image' : 'file',
+          cfg: { path: st.local_file, loop: !!(st.looping !== false), start: 0 },
+          name: s.name || lpOutBasename(st.local_file)
+        };
+      }
+      if (s.type === 'av_capture_input' && st.device) {
+        var dv = String(st.device);
+        // Windows dshow 串形如 video=XXX:audio=YYY；macOS avfoundation 形如 0:1
+        var nm = (/video=([^:]+)/.exec(dv) || [])[1] || dv;
+        return { kind: 'device', cfg: { deviceName: nm }, name: s.name || ('采集设备 ' + nm) };
+      }
+    }
+  }
+  // 回退：当前推流来源（未启用工作室模式 / 场景里没有可视来源时）
+  if (lpSrcType() === 'device') {
+    var sel = $('lpDeviceVideo');
+    if (!sel || !sel.value) return null;
+    var dn = (window._lpDevNames || {})['v' + sel.value]
+      || ((sel.selectedOptions && sel.selectedOptions[0]) ? sel.selectedOptions[0].label.replace(/\s*\[\d+\]$/, '') : '');
+    return { kind: 'device', cfg: { deviceName: dn }, name: dn || '采集设备' };
+  }
+  var files = lpPlayFiles();
+  if (!files.length) return null;
+  var p = files[0];
+  var pm = $('lpPlayMode') ? $('lpPlayMode').value : '';
+  return {
+    kind: lpIsImagePath(p) ? 'image' : 'file',
+    cfg: { path: p, loop: (pm === 'loop_all' || pm === 'loop_one'), start: 0 },
+    name: lpOutBasename(p)
+  };
+}
+// 按 JSON 指纹去重后下发；无来源时不下发（输出窗保持等待态，不白屏报错）
+function lpOutSyncSource() {
+  if (!window.tcapi || !tcapi.outSource) return;
+  var src = lpOutSourcePayload();
+  var fp = src ? JSON.stringify(src) : '';
+  if (fp === lpOutFp) return;
+  lpOutFp = fp;
+  if (!src) return;
+  tcapi.outSource(src);
+}
+function lpOutFillDisplays(list) {
+  lpOutDisplays = list || [];
+  var sel = $('lpOutDisplay');
+  if (!sel) return;
+  var keep = sel.value;
+  sel.innerHTML = lpOutDisplays.length
+    ? lpOutDisplays.map(function (d) { return '<option value="' + esc(d.id) + '">' + esc(d.label) + '</option>'; }).join('')
+    : '<option value="">（未检测到显示器）</option>';
+  if (keep && lpOutDisplays.some(function (d) { return String(d.id) === String(keep); })) sel.value = keep;
+}
+function lpOutRefresh() {
+  if (!window.tcapi || !tcapi.outDisplays) { lpOutNote('当前环境不支持读取显示器列表'); return; }
+  tcapi.outDisplays().then(function (r) {
+    if (!r || !r.ok) { lpOutNote('读取显示器失败：' + ((r && r.error) || '未知')); return; }
+    lpOutFillDisplays(r.displays);
+    lpOutNote('已读取 ' + (r.displays || []).length + ' 块显示器。采集卡（HDMI IN）通常也会被枚举成显示器，选它即送进采集卡。');
+  }).catch(function (e) { lpOutNote('读取显示器异常：' + ((e && e.message) || e)); });
+}
+function lpOutNote(t) { var n = $('lpOutNote'); if (n) n.textContent = t; }
+function lpOutSetUi(open) {
+  lpOutOpen = !!open;
+  var b1 = $('lpOutOpenBtn'), b2 = $('lpOutCloseBtn');
+  if (b1) b1.style.display = lpOutOpen ? 'none' : '';
+  if (b2) b2.style.display = lpOutOpen ? '' : 'none';
+}
+function lpOutStart() {
+  if (!window.tcapi || !tcapi.outOpen) { lpOutNote('当前环境不支持本机输出'); return; }
+  var sel = $('lpOutDisplay');
+  var id = sel ? sel.value : '';
+  lpOutSyncSource();
+  tcapi.outOpen(id).then(function (r) {
+    if (!r || !r.ok) { lpOutNote('开启输出失败：' + ((r && r.error) || '未知')); return; }
+    lpOutSetUi(true);
+    lpOutNote('已开启本机输出（目标：' + ((sel && sel.selectedOptions[0]) ? sel.selectedOptions[0].textContent : '默认显示器') + '）。收起请点「⏹ 停止输出」。');
+  }).catch(function (e) { lpOutNote('开启输出异常：' + ((e && e.message) || e)); });
+}
+function lpOutStop() {
+  if (!window.tcapi || !tcapi.outClose) return;
+  tcapi.outClose().then(function () {
+    lpOutSetUi(false);
+    lpOutNote('已停止本机输出。');
+  }).catch(function (e) { lpOutNote('停止输出异常：' + ((e && e.message) || e)); });
+}
+function lpOutApplyStyle() {
+  if (!window.tcapi || !tcapi.outStyle) return;
+  tcapi.outStyle({ fit: ($('lpOutFit') || {}).value || 'contain', info: !!($('lpOutInfo') || {}).checked });
+}
+if ($('lpOutRefreshBtn')) $('lpOutRefreshBtn').addEventListener('click', lpOutRefresh);
+if ($('lpOutOpenBtn')) $('lpOutOpenBtn').addEventListener('click', lpOutStart);
+if ($('lpOutCloseBtn')) $('lpOutCloseBtn').addEventListener('click', lpOutStop);
+if ($('lpOutFit')) $('lpOutFit').addEventListener('change', lpOutApplyStyle);
+if ($('lpOutInfo')) $('lpOutInfo').addEventListener('change', lpOutApplyStyle);
+// 热插拔 / 主进程状态变化回传
+if (window.tcapi && tcapi.onOutMoved) tcapi.onOutMoved(function (d) {
+  lpOutNote('目标显示器已断开，输出窗已自动移到「' + ((d && d.label) || '主显示器') + '」。');
+});
+if (window.tcapi && tcapi.onOutState) tcapi.onOutState(function (s) { if (s && typeof s.open === 'boolean') lpOutSetUi(s.open); });
+
 // r68：H.265/VP9 与推流协议兼容性前端预检（与主进程 codecMuxProblem 同口径，提前拦下省一次起进程）
 function lpCodecProtoCheck(url) {
   var codec = $('lpCodec').value;
@@ -12418,6 +12568,8 @@ document.addEventListener('DOMContentLoaded', function () {
   extHistRecover();
   // v1.1.47：音频来源 UI 初始化（恢复模式选择、显隐联动；未选模式时用默认）
   try { lpAudioModeApply(); } catch (e) { /* */ }
+  // v1.1.48：本机输出 UI 初始化（读取显示器列表；失败不影响主流程）
+  try { lpOutRefresh(); } catch (e) { /* */ }
   if (state.cfg.secretId && state.cfg.secretKey && state.cfg.rememberPwd !== false) {
     enterApp(true);
   } else {
@@ -12432,7 +12584,7 @@ document.addEventListener('DOMContentLoaded', function () {
 // 版本号显示（登录页徽标 / 设置页），版本来自 package.json（electron app.getVersion）
 (function initVerBadge() {
   try {
-    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.47');
+    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.48');
     var lv = document.getElementById('loginVer'); if (lv) lv.textContent = ver;
     var sv = document.getElementById('stVer'); if (sv) sv.textContent = ver;
     var sv2 = document.getElementById('sideVerText'); if (sv2) sv2.textContent = ver;

@@ -1,0 +1,252 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>PGM 输出</title>
+<style>
+  html,body{margin:0;padding:0;background:#000;color:#eee;overflow:hidden;
+    font-family:-apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif;
+    height:100%;width:100%;cursor:none;-webkit-user-select:none;user-select:none}
+  #stage{position:absolute;inset:0;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  #media{max-width:100%;max-height:100%;background:#000;display:none}
+  /* 铺放方式：contain 等比留黑边 / cover 铺满裁切 / stretch 拉伸填满 */
+  #media.fit-contain{width:100%;height:100%;object-fit:contain}
+  #media.fit-cover{width:100%;height:100%;object-fit:cover}
+  #media.fit-stretch{width:100%;height:100%;object-fit:fill}
+  #img{max-width:100%;max-height:100%;display:none;background:#000}
+  #img.fit-contain{width:100%;height:100%;object-fit:contain}
+  #img.fit-cover{width:100%;height:100%;object-fit:cover}
+  #img.fit-stretch{width:100%;height:100%;object-fit:fill}
+  /* 信息条：输出窗是 focusable:false，键盘到不了这里；仅供送屏时人工核对，可关 */
+  #info{position:absolute;left:0;right:0;bottom:0;padding:6px 12px;box-sizing:border-box;
+    font-size:13px;line-height:1.5;color:#cfd8e6;background:rgba(0,0,0,.55);
+    display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  #info .nm{font-weight:600;color:#eaf1ff}
+  #info .tg{font-size:11px;padding:1px 7px;border-radius:9px;background:rgba(90,120,180,.35);color:#bcd2f5}
+  #info .st{font-size:11px;color:#8fa3c8;margin-left:auto}
+  #hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    flex-direction:column;gap:10px;font-size:15px;color:#7d8ba3;text-align:center;padding:0 40px}
+  #hint .s{font-size:12px;color:#5f6d85;line-height:1.7}
+  .off{display:none !important}
+</style></head><body>
+<div id="stage">
+  <video id="media" playsinline autoplay></video>
+  <img id="img" alt="">
+  <div id="hint">
+    <div>等待主窗口下发画面…</div>
+    <div class="s">本窗口为无边框输出窗（不可聚焦 / 跳过任务栏）。<br>收起请回到主窗口点「⏹ 停止输出」。</div>
+  </div>
+</div>
+<div id="info" class="off">
+  <span class="tg" id="infoTag">—</span>
+  <span class="nm" id="infoName">—</span>
+  <span class="st" id="infoState">—</span>
+</div>
+<script src="vendor/mpegts.min.js"></script>
+<script src="vendor/hls.min.js"></script>
+<script>
+// v1.1.48：本机 PGM 输出窗。
+// 主窗的 PGM 是主窗里的一个元素，跨窗口传不了句柄；这里不传画面只传「源配置」，
+// 由本窗拿同一份 source 自己起播 —— 与 F 盘同款做法。
+(function () {
+  var v = document.getElementById('media');
+  var im = document.getElementById('img');
+  var hint = document.getElementById('hint');
+  var info = document.getElementById('info');
+  var els = { tag: document.getElementById('infoTag'), name: document.getElementById('infoName'), state: document.getElementById('infoState') };
+
+  var cur = { kind: '', cfg: null, name: '' };
+  var cfg = { fit: 'contain', info: false };
+  var players = null;   // { mpegts } | { hls } | { stream(MediaStream) }
+
+  var KIND_TAG = { image: '图片', device: '采集设备', file: '本地素材', stream: '网络流' };
+
+  function setState(s) { els.state.textContent = s || '—'; }
+
+  function showHint(on, text, sub) {
+    hint.classList.toggle('off', !on);
+    if (on && text) {
+      hint.children[0].textContent = text;
+      hint.children[1].innerHTML = sub || '收起请回到主窗口点「⏹ 停止输出」。';
+    }
+  }
+
+  function applyFit() {
+    var f = cfg.fit || 'contain';
+    v.className = 'fit-' + f;
+    im.className = 'fit-' + f;
+  }
+
+  function applyInfo() {
+    info.classList.toggle('off', !cfg.info);
+  }
+
+  // ---- 播放内核销毁：切换源前必须清干净，否则 mpegts/hls 会继续往旧元素塞数据 ----
+  function destroyPlayers() {
+    if (!players) return;
+    try { if (players.mpegts) players.mpegts.destroy(); } catch (e) { /* */ }
+    try { if (players.hls) players.hls.destroy(); } catch (e) { /* */ }
+    try { if (players.stream) players.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { /* */ }
+    players = null;
+  }
+
+  // play() 在 Electron 下返回 Promise，但在部分环境（如 jsdom / 老内核）下返回 undefined；
+  // 统一走这个包装，避免 .catch of undefined 直接崩掉整页脚本。
+  function safePlay(el) {
+    try {
+      var pr = el && el.play && el.play();
+      if (pr && typeof pr.catch === 'function') pr.catch(function () { /* 自动播放被拦，忽略 */ });
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function resetMedia() {
+    destroyPlayers();
+    try { v.pause(); v.removeAttribute('src'); v.srcObject = null; v.load(); } catch (e) { /* */ }
+    v.style.display = 'none';
+    im.style.display = 'none';
+    try { im.removeAttribute('src'); } catch (e) { /* */ }
+  }
+
+  // 本地素材路径 → file:// URL（Windows 盘符与反斜杠都要处理，否则 Chromium 解析失败）
+  function toFileUrl(p) {
+    if (!p) return '';
+    if (/^(file|https?|rtmp|blob|data):/i.test(p)) return p;
+    var s = String(p).replace(/\\/g, '/');
+    if (!/^\//.test(s)) s = '/' + s;
+    return 'file://' + s.replace(/\/+$/, '');
+  }
+
+  function isImagePath(p) {
+    return /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i.test(String(p || ''));
+  }
+
+  // ---- 四种源 ----
+  function playImage(c) {
+    resetMedia();
+    im.src = toFileUrl(c.path);
+    im.style.display = 'block';
+    im.onerror = function () { setState('图片加载失败'); showHint(true, '图片加载失败', '请检查主窗口选择的素材路径是否存在。'); };
+    im.onload = function () { setState('图片 · 已加载'); showHint(false); };
+    showHint(false);
+  }
+
+  function playDevice(c) {
+    resetMedia();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showHint(true, '当前环境不支持采集设备预览', 'mediaDevices 不可用（Electron 未授权 / 系统无摄像头）。');
+      setState('设备不可用'); return;
+    }
+    setState('正在打开设备…');
+    var want = c.deviceName || '';
+    navigator.mediaDevices.enumerateDevices().then(function (list) {
+      var vids = list.filter(function (d) { return d.kind === 'videoinput'; });
+      var hit = null;
+      if (want) {
+        // 按设备名匹配（与主窗同款）：完全相等优先，其次包含
+        hit = vids.filter(function (d) { return (d.label || '') === want; })[0]
+           || vids.filter(function (d) { return (d.label || '').indexOf(want) >= 0; })[0];
+      }
+      var constraint = hit ? { deviceId: { exact: hit.deviceId } } : true;
+      return navigator.mediaDevices.getUserMedia({ video: constraint, audio: false });
+    }).then(function (stream) {
+      players = { stream: stream };
+      v.srcObject = stream;
+      v.style.display = 'block';
+      safePlay(v);
+      setState('采集设备 · 播放中');
+      showHint(false);
+    }).catch(function (e) {
+      setState('设备打开失败');
+      showHint(true, '打开采集设备失败：' + ((e && e.message) || e), '若设备被占用或已拔出，重插后在主窗口重新「开始输出」。<br>收起请回到主窗口点「⏹ 停止输出」。');
+    });
+  }
+
+  function playFile(c) {
+    resetMedia();
+    var p = c.path || '';
+    if (isImagePath(p)) { playImage(c); return; }
+    v.loop = !!c.loop;
+    v.src = toFileUrl(p);
+    v.style.display = 'block';
+    if (c.start) { try { v.currentTime = Number(c.start) || 0; } catch (e) { /* 元数据未就绪 */ } }
+    safePlay(v);
+    v.onplaying = function () { setState('本地素材 · 播放中'); showHint(false); };
+    v.onerror = function () { setState('素材加载失败'); showHint(true, '素材加载失败', '请检查主窗口选择的素材路径是否存在。'); };
+  }
+
+  function playStream(c) {
+    resetMedia();
+    var url = c.url || '';
+    if (!url) { showHint(true, '未填写流地址', '请回到主窗口选择有效的画面来源。'); return; }
+    v.style.display = 'block';
+    var isHls = !!c.isHls || /\.m3u8(\?|$)/i.test(url);
+    if (isHls && window.Hls && Hls.isSupported()) {
+      var h = new Hls();
+      h.loadSource(url); h.attachMedia(v);
+      players = { hls: h };
+      safePlay(v);
+      h.on(Hls.Events.ERROR, function (_e, d) {
+        if (d && d.fatal) { setState('HLS 错误'); showHint(true, 'HLS 播放错误', String((d.details || d.type || '')) + '<br>收起请回到主窗口点「⏹ 停止输出」。'); }
+      });
+      v.onplaying = function () { setState('HLS · 播放中'); showHint(false); };
+      return;
+    }
+    if (window.mpegts && mpegts.getFeatureList().mseLivePlayback) {
+      var p = mpegts.createPlayer({ type: 'flv', isLive: true, hasAudio: true, hasVideo: true, url: url });
+      p.attachMediaElement(v); p.load(); p.play();
+      players = { mpegts: p };
+      p.on(mpegts.Events.ERROR, function (_et, _ed, ei) {
+        setState('FLV 错误');
+        showHint(true, 'FLV 播放错误', String((ei && ei.code) || '') + '<br>收起请回到主窗口点「⏹ 停止输出」。');
+      });
+      v.onplaying = function () { setState('FLV · 播放中'); showHint(false); };
+      return;
+    }
+    // 兜底：直接挂载（部分 mp4 / 渐进式 http 源可用）
+    v.src = url;
+    safePlay(v);
+    v.onplaying = function () { setState('网络流 · 播放中'); showHint(false); };
+  }
+
+  // ---- 对外入口：主窗下发源 ----
+  function play(src) {
+    if (!src || !src.kind) { showHint(true, '等待主窗口下发画面…', '收起请回到主窗口点「⏹ 停止输出」。'); return; }
+    cur = { kind: src.kind, cfg: src.cfg || {}, name: src.name || '' };
+    els.tag.textContent = KIND_TAG[cur.kind] || cur.kind;
+    els.name.textContent = cur.name || '(未命名来源)';
+    applyFit();
+    if (cur.kind === 'image') playImage(cur.cfg);
+    else if (cur.kind === 'device') playDevice(cur.cfg);
+    else if (cur.kind === 'file') playFile(cur.cfg);
+    else if (cur.kind === 'stream') playStream(cur.cfg);
+    else showHint(true, '未知的来源类型：' + cur.kind, '收起请回到主窗口点「⏹ 停止输出」。');
+  }
+
+  function setCfg(c) {
+    cfg = { fit: (c && c.fit) || 'contain', info: !!(c && c.info) };
+    applyFit(); applyInfo();
+  }
+
+  // ---- 握手三件套 ----
+  // onOutSource：主窗切源即换；onOutCfg：铺放方式 / 信息条；outGet：先开窗后下发时的时序兜底
+  var api = (window.tcapi || {});
+  if (api.onOutSource) api.onOutSource(function (s) { play(s); });
+  if (api.onOutCfg) api.onOutCfg(function (c) { setCfg(c); });
+  if (api.outGet) {
+    api.outGet().then(function (r) {
+      if (!r || !r.ok) return;
+      if (r.cfg) setCfg(r.cfg);
+      if (r.source) play(r.source);
+    }).catch(function () { /* 取不到就算了，等 onOutSource */ });
+  }
+
+  // 备用出口：输出窗 focusable:false，键盘事件通常到不了这里；
+  // 仅作尽力而为（例如系统把焦点强行给了本窗时），正式收起入口仍在主窗的「⏹ 停止输出」。
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && api.outClose) { try { api.outClose(); } catch (err) { /* */ } }
+  });
+
+  // 供自动化测试 / 主窗调试用（不影响正常运行）
+  window.__out = {
+    play: play, setCfg: setCfg,
+    state: function () { return { cur: cur, cfg: cfg }; }
+  };
+})();
+</script></body></html>
