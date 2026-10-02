@@ -9466,17 +9466,19 @@ function lpOpenRecPreview() {
   lpStopRecPreview();
   var v = $('lpRecPreview');
   if (!v) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices || !navigator.mediaDevices.getUserMedia) {
+    toast('当前环境不支持本地摄像头预览（mediaDevices 不可用）', true);
+    return;
+  }
   var wantName = (($('lpRecDeviceVideo') || {}).selectedOptions || [])[0] ? $('lpRecDeviceVideo').selectedOptions[0].label.replace(/\s*\[\d+\]$/, '') : '';
-  var constraints = { video: true, audio: false };
-  navigator.mediaDevices.enumerateDevices().then(function (devs) {
-    var hit = devs.filter(function (d) { return d.kind === 'videoinput'; }).filter(function (d) { return wantName && d.label === wantName; })[0];
-    if (hit) constraints.video = { deviceId: { exact: hit.deviceId } };
-    return navigator.mediaDevices.getUserMedia(constraints);
-  }).then(function (stream) {
+  lpCamOpenSmart(wantName, function (stream, devLabel) {
     lpRecPrevStream = stream;
     v.srcObject = stream;
     v.play().catch(function () { /* */ });
-  }).catch(function (err) { toast('采集预览失败：' + err.message + '（需授权摄像头权限）', true); });
+    if (devLabel && devLabel !== wantName) toast('「' + wantName + '」无画面输出，已自动切换到「' + devLabel + '」');
+  }, function (tried) {
+    toast('采集预览失败：已尝试 ' + (tried.length ? tried.join('、') : '默认设备') + ' 均无画面输出', true);
+  });
 }
 function lpStopRecPreview() {
   if (lpRecPrevStream) { lpRecPrevStream.getTracks().forEach(function (t) { t.stop(); }); lpRecPrevStream = null; }
@@ -10445,6 +10447,68 @@ window.tcapi.onFfLog(function (data) {
 
 // ---------- 实时预览（文件 / 设备） ----------
 var lpPrevStream = null;
+// v1.1.46：本机摄像头智能开流 —— 候选排序（名字精确匹配 > 真实摄像头 > 虚拟摄像头）。
+// 纯函数：入参 wantName（已剥掉下拉项 [N] 后缀）与设备列表，返回按优先级排好的 videoinput 设备。
+function lpCamOrderCandidates(wantName, devs) {
+  var cams = (devs || []).filter(function (d) { return d.kind === 'videoinput'; });
+  function isVirtual(d) { return /virtual|虚拟|obs|sinsam|manycam|snapcamera/i.test(d.label || ''); }
+  var exact = cams.filter(function (d) { return wantName && d.label === wantName; });
+  var real = cams.filter(function (d) { return !isVirtual(d); });
+  var virt = cams.filter(function (d) { return isVirtual(d); });
+  var seen = {};
+  function uniq(list) {
+    var out = [];
+    list.forEach(function (d) { if (!seen[d.deviceId]) { seen[d.deviceId] = 1; out.push(d); } });
+    return out;
+  }
+  // 精确匹配优先；否则真实摄像头优先、虚拟摄像头靠后（剔除占位/死设备）
+  return uniq(exact.concat(real).concat(virt));
+}
+// v1.1.46：逐台试开 —— 每路最多等 5 秒看帧是否到达，无帧即停流、拉入黑名单、换下一台；
+// 全部失败才报错。成功回调 onStream(stream, devLabel)，失败回调 onFail(triedLabels)。
+function lpCamOpenSmart(wantName, onStream, onFail) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices || !navigator.mediaDevices.getUserMedia) {
+    // 枚举不到可用设备时退回旧版 video:true 兜底（保持升级前行为兼容）
+    if (onFail) onFail([]);
+    return;
+  }
+  navigator.mediaDevices.enumerateDevices().then(function (devs) {
+    var cands = lpCamOrderCandidates(wantName, devs);
+    if (!cands.length) {
+      // 无候选 → 兜底 video:true
+      navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then(function (s) {
+        onStream(s, '默认摄像头');
+      }).catch(function (err) { onFail([]); });
+      return;
+    }
+    var tried = [];
+    function tryNext(i) {
+      if (i >= cands.length) { onFail(tried); return; }
+      var d = cands[i];
+      tried.push(d.label || d.deviceId);
+      navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: d.deviceId } }, audio: false })
+        .then(function (stream) {
+          // 等帧：track unmute 事件表示已开始输出帧（FaceTime 冷启动可超 2.5 秒，窗口 5 秒）
+          var settled = false;
+          function ok() { if (settled) return; settled = true; clearTimeout(tm); onStream(stream, d.label || d.deviceId); }
+          function giveup() {
+            if (settled) return; settled = true;
+            try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+            tryNext(i + 1);
+          }
+          var vt = stream.getVideoTracks()[0];
+          if (vt && vt.readyState === 'live' && !vt.muted) { ok(); return; }
+          if (vt && vt.readyState === 'live' && vt.muted) {
+            // muted 状态下监听 unmute（虚拟摄像头无宿主时 muted 恒 true、永不出帧）
+            vt.addEventListener('unmute', ok, { once: true });
+          }
+          var tm = setTimeout(giveup, 5000);   // 5 秒等帧窗
+        })
+        .catch(function () { tryNext(i + 1); });
+    }
+    tryNext(0);
+  }).catch(function () { if (onFail) onFail([]); });
+}
 function lpStopPreview() {
   if (lpPrevStream) { lpPrevStream.getTracks().forEach(function (t) { t.stop(); }); lpPrevStream = null; }
   var v = $('lpPreview');
@@ -10463,23 +10527,20 @@ function lpOpenPreview() {
     v.src = /^file:\/\//.test(p) ? p : ('file://' + (p.charAt(0) === '/' ? '' : '/') + p);
     v.play().catch(function () { /* 自动播放被拦截时用户手动点播放 */ });
   } else {
-    // 设备预览：按扫描到的设备名匹配 deviceId，匹配不到用默认摄像头
-    // v1.1.44：mediaDevices 不可用（旧环境/权限禁用/自动化测试）时优雅提示，不抛异常
+    // 设备预览：v1.1.46 智能开流 —— 剥掉下拉项 [N] 后缀，逐台试开等帧，无画面自动回退
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices || !navigator.mediaDevices.getUserMedia) {
       toast('当前环境不支持本地摄像头预览（mediaDevices 不可用），推流仍可正常进行', true);
       return;
     }
-    var wantName = ($('lpDeviceVideo') || {}).selectedOptions ? ($('lpDeviceVideo').selectedOptions[0] || {}).label || '' : '';
-    var constraints = { video: true, audio: false };
-    navigator.mediaDevices.enumerateDevices().then(function (devs) {
-      var hit = devs.filter(function (d) { return d.kind === 'videoinput'; }).filter(function (d) { return wantName && d.label === wantName; })[0];
-      if (hit) constraints.video = { deviceId: { exact: hit.deviceId } };
-      return navigator.mediaDevices.getUserMedia(constraints);
-    }).then(function (stream) {
+    var wantName = (($('lpDeviceVideo') || {}).selectedOptions || [])[0] ? $('lpDeviceVideo').selectedOptions[0].label.replace(/\s*\[\d+\]$/, '') : '';
+    lpCamOpenSmart(wantName, function (stream, devLabel) {
       lpPrevStream = stream;
       v.srcObject = stream;
       v.play().catch(function () { /* */ });
-    }).catch(function (err) { toast('摄像头预览失败：' + err.message + '（需授权摄像头权限）', true); return; });
+      if (devLabel && devLabel !== wantName) toast('「' + wantName + '」无画面输出，已自动切换到「' + devLabel + '」');
+    }, function (tried) {
+      toast('摄像头预览失败：已尝试 ' + (tried.length ? tried.join('、') : '默认设备') + ' 均无画面输出。若为虚拟摄像头请先启动其宿主软件，或改选真实设备', true);
+    });
   }
   $('lpPrevBtn').style.display = 'none'; $('lpPrevStopBtn').style.display = '';
 }
