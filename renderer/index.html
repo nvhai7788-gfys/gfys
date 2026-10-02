@@ -210,6 +210,8 @@
   }
   .topbar .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; background: var(--grad-text); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .topbar .brand svg { width: 22px; height: 22px; }
+  /* v1.1.46：顶栏版本芯片 —— 独立于 brand 的渐变文字（color 覆盖回实色，避免被 background-clip 透明化） */
+  .topbar .brand .top-ver { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 10px; background: rgba(143,161,196,.16); color: var(--text2); -webkit-background-clip: border-box; background-clip: border-box; letter-spacing: 0; }
   .conn-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 10px; border-radius: 20px; background: rgba(143,161,196,.12); color: var(--text2); }
   .conn-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: #b6bcc8; }
   .conn-badge.on { background: rgba(52,211,153,.14); color: var(--success); } .conn-badge.on .dot { background: var(--success); box-shadow: 0 0 6px rgba(52,211,153,.9); }
@@ -598,6 +600,7 @@
     <div class="brand">
       <svg viewBox="0 0 24 24"><path fill="#3d7bfd" d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2z"/><path fill="#22d3ee" d="M12 6a6 6 0 1 0 6 6h-2a4 4 0 1 1-4-4V6z"/><circle fill="#3d7bfd" cx="12" cy="12" r="2.4"/></svg>
       港丰影视直播工作台
+      <span class="top-ver" id="topVerText">v1.1.46</span>
     </div>
     <span class="conn-badge" id="connBadge"><span class="dot"></span><span id="connText">未连接</span></span>
     <div class="spacer"></div>
@@ -613,11 +616,7 @@
       <div class="side-version" id="sideVersion">
         <span class="sv-dot"></span>
         <span class="sv-label">港丰影视</span>
-        <span class="sv-text" id="sideVerText">v1.1.45</span>
-      </div>
-      <div style="display:flex;gap:6px;margin-bottom:10px">
-        <button class="btn btn-sm btn-primary" id="provTencent" style="flex:1;justify-content:center">腾讯云</button>
-        <button class="btn btn-sm" id="provAliyun" style="flex:1;justify-content:center">阿里云</button>
+        <span class="sv-text" id="sideVerText">v1.1.46</span>
       </div>
       <div class="nav-group">总览</div>
       <button class="nav-item active" data-view="overview">
@@ -718,9 +717,9 @@
         <span data-i18n="nav.settings">设置</span>
       </button>
       <div class="foot">数据经由腾讯云官方 API<br>live · 2018-08-01<br>密钥仅存本机</div>
-      <button class="nav-item" id="aboutBtn" style="margin-top:6px">
+      <button class="nav-item" id="aboutBtn" data-view="legal" style="margin-top:6px">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
-        <span>关于与免责声明</span>
+        <span>免责声明</span>
       </button>
     </div>
 
@@ -1199,8 +1198,8 @@
             <button class="btn btn-primary" id="genBtn" style="width:100%;justify-content:center;margin-top:10px;padding:10px">⚡ 一键生成推流 + 播放地址</button>
         </div>
 
-        <!-- 生成地址：r66 重写排版（推流 / 播放两卡并排，名称分开，每流隔行） -->
-        <div class="grid-2" style="grid-template-columns:1fr 1fr;margin-top:14px;align-items:stretch">
+        <!-- 生成地址：r66 重写排版；v1.1.46 起改纵向横版（推流在上、播放在下，每条占满整行） -->
+        <div style="display:flex;flex-direction:column;gap:14px;margin-top:14px">
             <div class="card" id="genPushCard" style="margin:0;border-left:4px solid var(--primary)">
               <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
                 <h3 style="font-size:15px;margin:0"><span class="tag blue" style="font-size:11px;padding:3px 10px">PUSH 推流地址</span></h3>
@@ -1840,7 +1839,7 @@
           <h3 style="font-size:14px;margin-bottom:6px">各流实时码率对比（kbps · 随检测刷新）</h3>
           <div id="qBar" style="height:240px"></div>
         </div>
-        <div id="qGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(430px,1fr));gap:12px"></div>
+        <div id="qGrid" style="display:grid;grid-template-columns:1fr;gap:12px"></div>
 
         <!-- 单流详细检测（历史区间查询 / 导出） -->
         <details style="margin-top:14px">
@@ -2322,6 +2321,44 @@
           </div>
         </div>
       </div>
+
+      <!-- 免责声明（独立菜单页，v1.1.46）：与侧栏弹窗同一份内容 -->
+      <div class="view" id="view-legal">
+        <div class="view-head">
+          <h2>免责声明</h2><span class="desc">关于与免责声明 · 第三方开源引用</span>
+          <div class="spacer"></div>
+          <button class="btn btn-sm btn-primary" id="legalAgreeBtn">我已阅读并同意</button>
+        </div>
+        <div class="card">
+          <div class="about-scroll" id="legalBody">
+            <div class="about-sec">
+              <h4>一、免责声明</h4>
+              <p>1. 本软件为直播管理与推流辅助工具，仅供合法、合规的直播业务使用。用户应遵守所在地法律法规、平台规范及腾讯云 / 阿里云等云服务商的《服务条款》，因违反上述规定产生的后果由用户自行承担。</p>
+              <p>2. 本软件通过用户自行填写的 API 密钥访问云服务，密钥仅在本地保存，开发者不收集、不存储、不上传任何密钥与直播数据。请妥善保管密钥，因密钥泄露导致的一切损失由用户自行承担。</p>
+              <p>3. 本软件按「现状」提供，不对推流稳定性、画面质量、可用性作任何明示或默示担保。因网络、云服务商、第三方组件或硬件设备故障造成的直播中断或损失，开发者不承担任何责任。</p>
+              <p>4. 本软件引用了若干开源组件（详见下方「第三方开源引用」），各组件版权归其原作者所有，并遵循其各自的开源许可证。</p>
+            </div>
+            <div class="about-sec">
+              <h4>二、第三方开源引用</h4>
+              <table class="about-table">
+                <thead><tr><th>组件</th><th>用途</th><th>许可证</th></tr></thead>
+                <tbody>
+                  <tr><td>mpegts.js</td><td>FLV 直播流播放</td><td>Apache-2.0</td></tr>
+                  <tr><td>hls.js</td><td>HLS 直播流播放</td><td>Apache-2.0</td></tr>
+                  <tr><td>Apache ECharts</td><td>数据可视化图表</td><td>Apache-2.0</td></tr>
+                  <tr><td>Electron</td><td>桌面应用框架</td><td>MIT</td></tr>
+                  <tr><td>electron-builder</td><td>安装包构建</td><td>MIT</td></tr>
+                  <tr><td>FFmpeg</td><td>本地推流 / 录制</td><td>LGPL-2.1+ / GPL（按编译配置）</td></tr>
+                  <tr><td>OBS Studio (libobs)</td><td>libobs 真引擎</td><td>GPL-2.0</td></tr>
+                  <tr><td>obs-transitions / obs-filters</td><td>场景过渡 / 源滤镜</td><td>GPL-2.0</td></tr>
+                  <tr><td>node-gyp</td><td>原生桥接编译</td><td>MIT</td></tr>
+                </tbody>
+              </table>
+              <p class="about-note">完整版权与许可证信息见随附的 THIRD_PARTY_NOTICES.md 及各组件官方仓库。libobs（OBS Studio）采用 GPL-2.0 许可证，本软件对 libobs 的使用方式请遵循其许可证要求。</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -2348,7 +2385,7 @@
 <div class="mask hidden" id="aboutMask" style="z-index:190">
   <div class="modal" style="width:640px">
     <h3>关于与免责声明</h3>
-    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.45</span></div>
+    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.46</span></div>
     <div class="about-scroll">
       <div class="about-sec">
         <h4>一、免责声明</h4>
@@ -3559,7 +3596,7 @@ var NAV_ICON_COLORS = {
   caster: '#22d3ee', room: '#34d399',
   package: '#3d7bfd', servers: '#a78bfa', nodes: '#22d3ee',
   notify: '#fbbf24', rules: '#f87171', users: '#34d399', apidoc: '#3d7bfd',
-  settings: '#8fa1c4'
+  settings: '#8fa1c4', legal: '#a78bfa'
 };
 // v1.1.45：日间主题微调饱和度——白底上降饱和 + 略加深，保证可读不刺眼；夜间保持高亮原色。
 var NAV_ICON_COLORS_LIGHT = {
@@ -3570,7 +3607,7 @@ var NAV_ICON_COLORS_LIGHT = {
   caster: '#0e9bb0', room: '#0f9d6e',
   package: '#2f66d8', servers: '#7c5cd6', nodes: '#0e9bb0',
   notify: '#c68a08', rules: '#dc3f3f', users: '#0f9d6e', apidoc: '#2f66d8',
-  settings: '#5c6f94'
+  settings: '#5c6f94', legal: '#7c5cd6'
 };
 function applyNavIconColors(theme) {
   var map = (theme === 'light') ? NAV_ICON_COLORS_LIGHT : NAV_ICON_COLORS;
@@ -3578,8 +3615,6 @@ function applyNavIconColors(theme) {
     var c = map[b.getAttribute('data-view')];
     if (c) b.style.setProperty('--ni', c);
   });
-  var _aboutBtn = document.getElementById('aboutBtn');
-  if (_aboutBtn) _aboutBtn.style.setProperty('--ni', (theme === 'light' ? '#7c5cd6' : '#a78bfa'));
 }
 applyNavIconColors(resolvedTheme());
 
@@ -3626,7 +3661,8 @@ var VIEW_REFRESHERS = {
   rules:     function () { renderRules(); },
   users:     function () { renderUsers(); },
   apidoc:    function () { if (!window._docRendered) { renderApidoc(); window._docRendered = true; } },
-  settings:  function () { /* 设置页为本地表单，无需刷新 */ }
+  settings:  function () { /* 设置页为本地表单，无需刷新 */ },
+  legal:     function () { /* 免责声明为静态页，无需刷新 */ }
 };
 var VIEW_LAST_REFRESH = {};
 var VIEW_REFRESH_THROTTLE = 2000;   // 同一视图 2 秒内重复进入不重复打 API
@@ -7381,6 +7417,35 @@ $('alPushDomain').addEventListener('change', function () {
 });
 $('alExpire').value = dtLocalVal(new Date(Date.now() + 24 * 3600 * 1000));
 // ========== 阿里云地址生成核心（按官方 TypeA 鉴权公式重写） ==========
+// v1.1.46：地址结果横版化 —— 按「推流 / 播放」归组，PUSH 组在上、PLAY 组在下，组间虚线分隔。
+// data-alprev / data-alcopy 仍携带 items 的原始下标（与 window._alUrls 对齐），分组只改视觉顺序、不改取值映射。
+function alAddrGroupedHtml(items) {
+  items = items || [];
+  var push = [], play = [];
+  items.forEach(function (it, i) {
+    if (/推流/.test(it.label)) push.push(i);
+    else play.push(i);
+  });
+  function block(idxs, title, color) {
+    var out = '<div style="padding:8px 12px;border-left:4px solid ' + color + ';background:var(--bg2);border-radius:6px;margin-bottom:12px">' +
+      '<div class="kv" style="margin-bottom:8px;font-weight:700;font-size:12px;color:' + color + '">' + title + '</div>';
+    idxs.forEach(function (i) {
+      var it = items[i];
+      out += '<div style="margin-bottom:10px">' +
+        '<div class="kv" style="margin-bottom:3px;font-size:12px;color:var(--text2)">' + esc(it.label) + '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+        '<input readonly value="' + esc(it.value) + '" style="font-size:12px;color:var(--text2)">' +
+        (it.preview ? '<button class="btn btn-sm" data-alprev="' + i + '" style="flex-shrink:0">预览</button>' : '') +
+        '<button class="btn btn-sm btn-primary" data-alcopy="' + i + '" style="flex-shrink:0">复制</button>' +
+        '</div></div>';
+    });
+    return out + '</div>';
+  }
+  var html = '';
+  if (push.length) html += block(push, '▲ PUSH 推流地址', 'var(--primary)');
+  if (play.length) html += block(play, '▼ PLAY 播放地址', 'var(--success)');
+  return html;
+}
 // auth_key = timestamp-rand-uid-md5hash；timestamp 为十进制 UNIX 秒，rand / uid 一般为 0
 // md5hash = MD5( sstring )，sstring = URI-timestamp-rand-uid-PrivateKey，URI 为路径（不含域名与参数）
 function alSignedUrl(url, key, expireSec, authType) {
@@ -7444,16 +7509,7 @@ $('alGenBtn').addEventListener('click', function () {
     { label: 'HLS 播放地址（移动端）', value: useAuth ? alSignedUrl('https://' + playDomain + uri + '.m3u8', keys.play, expireSec) : 'https://' + playDomain + uri + '.m3u8', preview: true },
     { label: 'RTS 超低延时播放地址（artc）', value: useAuth ? alSignedUrl('artc://' + playDomain + uri, keys.play, expireSec) : 'artc://' + playDomain + uri }
   ];
-  var html = '';
-  items.forEach(function (it, i) {
-    html += '<div style="margin-bottom:12px">' +
-      '<div class="kv" style="margin-bottom:3px;font-size:12px;color:var(--text2)">' + esc(it.label) + '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center">' +
-      '<input readonly value="' + esc(it.value) + '" style="font-size:12px;color:var(--text2)">' +
-      (it.preview ? '<button class="btn btn-sm" data-alprev="' + i + '" style="flex-shrink:0">预览</button>' : '') +
-      '<button class="btn btn-sm btn-primary" data-alcopy="' + i + '" style="flex-shrink:0">复制</button>' +
-      '</div></div>';
-  });
+  var html = alAddrGroupedHtml(items);
   html += '<button class="btn btn-sm" data-alcopyall="1">📋 一键复制全部地址</button>';
   $('alAddrResult').innerHTML = html;
   window._alUrls = items.map(function (it) { return it.value; });
@@ -7520,16 +7576,7 @@ $('alGenHistList').addEventListener('click', function (e) {
     navigator.clipboard.writeText(text).then(function () { toast('已复制该记录的全部地址'); }, function () { toast('复制失败', true); });
   } else {
     // 恢复记录：按保存时的完整地址渲染结果区（不重新计算，保证与生成时一致）
-    var html = '';
-    (h.items || []).forEach(function (it, i) {
-      html += '<div style="margin-bottom:12px">' +
-        '<div class="kv" style="margin-bottom:3px;font-size:12px;color:var(--text2)">' + esc(it.label) + '</div>' +
-        '<div style="display:flex;gap:8px;align-items:center">' +
-        '<input readonly value="' + esc(it.value) + '" style="font-size:12px;color:var(--text2)">' +
-        (it.preview ? '<button class="btn btn-sm" data-alprev="' + i + '" style="flex-shrink:0">预览</button>' : '') +
-        '<button class="btn btn-sm btn-primary" data-alcopy="' + i + '" style="flex-shrink:0">复制</button>' +
-        '</div></div>';
-    });
+    var html = alAddrGroupedHtml(h.items || []);
     html += '<button class="btn btn-sm" data-alcopyall="1">📋 一键复制全部地址</button>';
     $('alAddrResult').innerHTML = html;
     window._alUrls = (h.items || []).map(function (it) { return it.value; });
@@ -11613,8 +11660,8 @@ $('tpList').addEventListener('click', function (e) {
 // ===========================================================================
 var ROLE_PERMS = {
   // 阿里云板块已并入 overview/domains/genaddr/relay/monitor 页签，权限随所属页面
-  operator: ['overview', 'charts', 'monitor', 'watch', 'quality', 'relay', 'genaddr', 'templates', 'servers', 'nodes', 'notify', 'rules', 'apidoc', 'caster', 'room', 'package', 'domains', 'localpush', 'localrec'],
-  viewer: ['overview', 'charts', 'monitor', 'watch', 'quality', 'notify', 'apidoc', 'room', 'package']
+  operator: ['overview', 'charts', 'monitor', 'watch', 'quality', 'relay', 'genaddr', 'templates', 'servers', 'nodes', 'notify', 'rules', 'apidoc', 'caster', 'room', 'package', 'domains', 'localpush', 'localrec', 'legal'],
+  viewer: ['overview', 'charts', 'monitor', 'watch', 'quality', 'notify', 'apidoc', 'room', 'package', 'legal']
 };
 var ROLE_TEXT = { admin: '管理员', operator: '操作员', viewer: '只读' };
 function curUser() {
@@ -11859,18 +11906,16 @@ $('stLogCleanBtn').addEventListener('click', function () {
 });
 
 // ---------- 云商切换（腾讯云 / 阿里云） ----------
+// v1.1.46：云商合并 —— 移除侧栏「腾讯云/阿里云」两个切换按钮，两份列表内容完全一致（全部功能常驻可见），
+// 各页内部的云商页签只决定「该页取哪家数据」，不再影响菜单结构。
+// 顺带修掉隐患：旧 tencent 列表漏了 watch/localpush/localrec，未登录时这三项（含「本地推流」）会被隐藏。
 var PROVIDER_VIEWS = {
-  tencent: ['overview', 'charts', 'monitor', 'quality', 'domains', 'relay', 'genaddr', 'templates', 'caster', 'room', 'package', 'servers', 'nodes', 'notify', 'rules', 'users', 'apidoc', 'settings'],
-  // 阿里云板块已并入对应页面（页签），云商切换只影响可见导航与默认页签
-  aliyun: ['overview', 'monitor', 'domains', 'genaddr', 'relay', 'notify', 'rules', 'users', 'apidoc', 'settings']
+  tencent: ['overview', 'charts', 'monitor', 'watch', 'quality', 'domains', 'relay', 'genaddr', 'templates', 'localpush', 'localrec', 'caster', 'room', 'package', 'servers', 'nodes', 'notify', 'rules', 'users', 'apidoc', 'settings'],
+  aliyun: ['overview', 'charts', 'monitor', 'watch', 'quality', 'domains', 'relay', 'genaddr', 'templates', 'localpush', 'localrec', 'caster', 'room', 'package', 'servers', 'nodes', 'notify', 'rules', 'users', 'apidoc', 'settings']
 };
 function setProvider(p, jump) {
   state.cfg.provider = p;
-  // 仅用户主动切换（jump=true）时持久化；初始化调用发生在 loadCfg 之前，
-  // 若此时 saveCfg 会用默认配置覆盖磁盘上的全部已存设置（历史 bug，会导致每次启动丢失所有已保存配置）
   if (jump) saveCfg();
-  $('provTencent').classList.toggle('btn-primary', p !== 'aliyun');
-  $('provAliyun').classList.toggle('btn-primary', p === 'aliyun');
   var show = PROVIDER_VIEWS[p] || PROVIDER_VIEWS.tencent;
   document.querySelectorAll('.nav-item').forEach(function (b) {
     b.style.display = show.indexOf(b.dataset.view) === -1 ? 'none' : '';
@@ -11884,19 +11929,12 @@ function setProvider(p, jump) {
     }
     g.style.display = hide ? 'none' : '';
   });
-  if (!jump) return;
-  // 云商主动切换：重置所有合并页的页签记忆为当前云商
+  // 合并后云商不再有「跳到总览」的副作用；只恢复合并页记忆的云商页签
   Object.keys(MERGED_CLOUD_VIEWS).forEach(function (v) {
     var el = document.getElementById('view-' + v);
     if (el) el._cloud = p === 'aliyun' ? 'al' : 'tc';
   });
-  var firstId = 'overview';
-  var target = document.querySelector('.nav-item[data-view="' + firstId + '"]');
-  if (target && !target.classList.contains('active')) target.click();
-  else if (target) setViewCloud('overview', p === 'aliyun' ? 'al' : 'tc'); // 已在概览页时同步切页签
 }
-$('provTencent').addEventListener('click', function () { setProvider('tencent', true); });
-$('provAliyun').addEventListener('click', function () { setProvider('aliyun', true); });
 setProvider(state.cfg.provider || 'tencent', false);
 
 // ---------- 设置 ----------
@@ -12142,30 +12180,28 @@ document.addEventListener('DOMContentLoaded', function () {
 // 版本号显示（登录页徽标 / 设置页），版本来自 package.json（electron app.getVersion）
 (function initVerBadge() {
   try {
-    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.45');
+    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.46');
     var lv = document.getElementById('loginVer'); if (lv) lv.textContent = ver;
     var sv = document.getElementById('stVer'); if (sv) sv.textContent = ver;
     var sv2 = document.getElementById('sideVerText'); if (sv2) sv2.textContent = ver;
     var av = document.getElementById('aboutVer'); if (av) av.textContent = ver;
+    var tv = document.getElementById('topVerText'); if (tv) tv.textContent = ver;   // v1.1.46：顶栏版本芯片
   } catch (e) { /* 版本显示失败不影响功能 */ }
 })();
 
-// v1.1.40：关于与免责声明弹窗（侧边栏底部入口）
+// v1.1.40：关于与免责声明弹窗（v1.1.46 起 aboutBtn 改为独立的「免责声明」导航页，弹窗保留作备用入口）
 (function initAbout() {
-  function open() {
-    var mask = $('aboutMask'); if (!mask) return;
-    mask.classList.remove('hidden');
-  }
   function close() {
     var mask = $('aboutMask'); if (!mask) return;
     mask.classList.add('hidden');
   }
-  var btn = $('aboutBtn');
-  if (btn) btn.addEventListener('click', open);
   var cb = $('aboutCloseBtn'); if (cb) cb.addEventListener('click', close);
   var ab = $('aboutAgreeBtn'); if (ab) ab.addEventListener('click', close);
   var mask = $('aboutMask');
   if (mask) mask.addEventListener('click', function (e) { if (e.target === mask) close(); });
+  // v1.1.46：免责声明页「我已阅读并同意」—— 仅提示，不跳页（用户可自行切到其它菜单）
+  var lbtn = $('legalAgreeBtn');
+  if (lbtn) lbtn.addEventListener('click', function () { toast('已知悉免责声明'); });
 })();
 
 // v1.1.40：libobs 真引擎的音频 / 滤镜 / 过渡 / 预览 桥接（推流走 libobs 引擎时才同步到原生；
