@@ -351,10 +351,126 @@ function buildDrawtext(s, fontFile) {
   return 'drawtext=' + p;
 }
 
+/**
+ * v1.1.47：独立音频源规划 —— 声音与画面解耦（外接声卡 / 网络音频流 / 跟随画面 / 静音）。
+ *
+ * 入参：
+ *   plan —— {
+ *     mode: 'source'|'device'|'url'|'off',   // 声音来源模式
+ *     deviceIndex, deviceName,                 // device：音频采集设备
+ *     url,                                     // url：网络音频流 / 本机音频文件地址
+ *     inputIndex,                              // 该独立音频输入在全部 -i 中的序号（排在图片输入之后）
+ *     gain: -20..20 (dB),                      // 独立音源增益
+ *     delay: 0..5 (s),                         // 跨设备口型对齐延迟补偿
+ *     mix: bool,                               // 是否与画面自带音轨混音（amix，画面音频为主时钟）
+ *     isDarwin: bool                           // 平台（设备输入语法 avfoundation/dshow 二选一）
+ *   }
+ * 返回：
+ *   { inputArgs, chain, map, encArgs, label, warn, mode }
+ *   - inputArgs：追加到 ffmpeg 的输入参数（source/off 为空数组）
+ *   - chain：独立音频的预处理片段（重采样 + 增益 + 延迟），需与画面音频做 amix 时由调用方合并；
+ *            不混音时它就是最终音频图（产出 [aout]）
+ *   - map：输出音频 map 标签（[aout] / 0:a? / 空=禁音）
+ *   - encArgs：音频编码参数（-c:a aac ...），off 时为空
+ *   - label：界面提示文案
+ *   - warn：配置不完整时的降级说明
+ *
+ * 关键约束（对齐 OBS / F 盘 v1.1.47）：
+ *   - 独立音频输入必须排在图片输入之后（inputIndex = 1 + imgInputs.length），否则图片 [n:v] 序号错位。
+ *   - 跨设备必须带 aresample=async=1:first_pts=0，否则两块独立时钟推几十分钟会漂移。
+ *   - 混音 amix 用 duration=first（画面音频为主时钟）+ normalize=0（保持两路原始电平，否则每路砍半）。
+ */
+function composeAudioPlan(plan) {
+  plan = plan || {};
+  var mode = plan.mode || 'source';
+  var inputIndex = plan.inputIndex != null ? plan.inputIndex : 1;
+
+  // 增益钳制 -20..20 dB，非法/缺省按 0 处理
+  var gain = Number(plan.gain);
+  if (isNaN(gain)) gain = 0;
+  if (gain < -20) gain = -20; if (gain > 20) gain = 20;
+  // 延迟钳制 0..5 s
+  var delay = Number(plan.delay);
+  if (isNaN(delay) || delay < 0) delay = 0; if (delay > 5) delay = 5;
+
+  // 独立音频的预处理链：重采样统一格式 → 增益 → 延迟（负值表提前，正值表延后）
+  function indChain(tag) {
+    var c = '[' + inputIndex + ':a]aresample=async=1:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo';
+    if (gain !== 0) c += ',volume=' + gain + 'dB';
+    if (delay !== 0) c += ',adelay=' + Math.round(delay * 1000) + '|' + Math.round(delay * 1000);
+    c += '[' + tag + ']';
+    return c;
+  }
+
+  var mix = !!plan.mix;
+
+  // 静音：不追加输入，禁音轨
+  if (mode === 'off') {
+    return { inputArgs: [], chain: null, map: '', encArgs: [], label: '声音关闭', warn: '', mode: 'off', mix: mix };
+  }
+
+  // 跟随画面来源：不追加独立输入（沿用调用方既有 -map 0:a? 或 amix 逻辑）
+  if (mode === 'source') {
+    return { inputArgs: [], chain: null, map: '0:a?', encArgs: [], label: '跟随画面来源', warn: '', mode: 'source', mix: mix };
+  }
+
+  // 外接声卡 / 音频采集设备
+  if (mode === 'device') {
+    var devIdx = (plan.deviceIndex == null || plan.deviceIndex === '') ? null : plan.deviceIndex;
+    var devName = (plan.deviceName == null) ? '' : String(plan.deviceName);
+    if (devIdx == null && !devName) {
+      // 配置不完整 → 降级回「跟随画面」，不拼坏命令
+      return { inputArgs: [], chain: null, map: '0:a?', encArgs: [], label: '跟随画面来源', warn: '未选择音频设备，已退回跟随画面来源', mode: 'source', mix: mix };
+    }
+    var inputArgs;
+    if (plan.isDarwin) {
+      // macOS avfoundation：-f avfoundation -i :<idx>（纯音频，视频段留空）
+      inputArgs = ['-f', 'avfoundation', '-i', ':' + (devIdx != null ? devIdx : '0')];
+    } else {
+      // Windows dshow：-f dshow -i audio=<名>
+      inputArgs = ['-f', 'dshow', '-i', 'audio=' + (devName || devIdx)];
+    }
+    return {
+      inputArgs: inputArgs,
+      chain: indChain('aind'),
+      map: '',
+      encArgs: [],
+      label: '外接声卡',
+      warn: '',
+      mode: 'device',
+      mix: mix
+    };
+  }
+
+  // 网络音频流 / 本机音频文件
+  if (mode === 'url') {
+    if (!plan.url) {
+      return { inputArgs: [], chain: null, map: '0:a?', encArgs: [], label: '跟随画面来源', warn: '未填写音频流地址，已退回跟随画面来源', mode: 'source', mix: mix };
+    }
+    var uargs = ['-i', String(plan.url)];
+    // rtsp 强制 tcp（NAT/防火墙下最稳）
+    if (/^rtsp:/i.test(plan.url)) uargs = ['-rtsp_transport', 'tcp', '-i', String(plan.url)];
+    return {
+      inputArgs: uargs,
+      chain: indChain('aind'),
+      map: '',
+      encArgs: [],
+      label: '网络音频流',
+      warn: '',
+      mode: 'url',
+      mix: mix
+    };
+  }
+
+  // 未知模式 → 跟随画面
+  return { inputArgs: [], chain: null, map: '0:a?', encArgs: [], label: '跟随画面来源', warn: '', mode: 'source', mix: mix };
+}
+
 module.exports = {
   composeVideoFilter: composeVideoFilter,
   compileSceneGraph: compileSceneGraph,
   compileAudioMix: compileAudioMix,
+  composeAudioPlan: composeAudioPlan,
   buildDrawtext: buildDrawtext,
   normColor: normColor,
   needsInput: needsInput,

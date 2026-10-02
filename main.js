@@ -16,7 +16,7 @@ const https = require('https');
 const http = require('http');
 const { spawn, execFileSync } = require('child_process');
 // r71：OBS 场景滤镜构造（缩放/翻转/旋转/来源叠加）抽到纯函数模块，便于离线单测
-const { composeVideoFilter, compileSceneGraph, compileAudioMix, needsInput: ffNeedsInput } = require('./ffmpeg-args');
+const { composeVideoFilter, compileSceneGraph, compileAudioMix, composeAudioPlan, needsInput: ffNeedsInput } = require('./ffmpeg-args');
 // v1.1.38：libobs 真引擎适配器（可选）——原生 addon 未编译/未打包时为 null，自动回退 ffmpeg
 const { createLibobsEngine } = require('./libobs-engine');
 
@@ -831,6 +831,15 @@ function buildPushArgs(o) {
   const hasAudio = src.type === 'file' || (src.deviceAudio !== undefined && src.deviceAudio !== '');
   // v1.1.43：主画面（输入 0）含音频时置于混音首位
   if (hasAudio) audioInputs.unshift({ inIdx: 0, volume: (src.volume !== undefined ? src.volume : 1), muted: !!src.muted });
+  // v1.1.47：独立音频源（声音与画面解耦）。inputIndex 排在图片输入之后，避免图片 [n:v] 序号错位。
+  const audioPlan = composeAudioPlan(Object.assign({}, (o.audioPlan || {}), {
+    inputIndex: 1 + imgInputs.length,
+    isDarwin: process.platform === 'darwin'
+  }));
+  if (audioPlan.inputArgs && audioPlan.inputArgs.length) {
+    args.push.apply(args, audioPlan.inputArgs);
+    inIdx += 1;   // 独立音频输入占一个流序号（-i 已在 inputArgs 中追加）
+  }
   // r66：编码器选择（默认 libx264，支持 H.265/HEVC、VP9）
   const codec = o.codec || 'libx264';
   // r70：按**编码族**判断，不再比对编码器名字 —— 这样 hevc_videotoolbox / hevc_nvenc
@@ -905,31 +914,53 @@ function buildPushArgs(o) {
     } else {
       vfRes = composeVideoFilter(o, imgInputs);
     }
-    // v1.1.43：多源音频混音。先算出音频混音链（多路才返回非 null）。
+    // v1.1.43：多源音频混音（主画面 + 叠加源）。先算出音频混音链（多路才返回非 null）。
     const amix = compileAudioMix(audioInputs, { audioRate: '44100' });
+    // v1.1.47：独立音频源与画面音频的关系，统一组装成「音频滤镜图 + 输出 map + 是否编码」三元组。
+    //   mode=off     → 禁音轨（-an）
+    //   mode=source  → 沿用 v1.1.43 行为（amix 或 -map 0:a?）
+    //   mode=device/url → 独立音源（chain 产 [aind]）；mix=true 与画面音频 amix（duration=first:normalize=0），
+    //                      否则独立音源独占音轨
+    var audioComplex = null, audioMap = null, audioHas = false;
+    if (audioPlan.mode === 'off') {
+      audioHas = false;
+    } else if (audioPlan.mode === 'device' || audioPlan.mode === 'url') {
+      // 独立音源：mix 时画面音频 [0:a] 混入；不 mix 时独立音源独占
+      if (audioPlan.mix && hasAudio) {
+        audioComplex = '[0:a]aresample=async=1:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo[am0];' +
+          audioPlan.chain.replace(/\[aind\]$/, '[am1]') +
+          ';[am0][am1]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]';
+        audioMap = '[aout]';
+        audioHas = true;
+      } else {
+        audioComplex = audioPlan.chain.replace(/\[aind\]$/, '[aout]');
+        audioMap = '[aout]';
+        audioHas = true;
+      }
+    } else {
+      // source（默认）：沿用 v1.1.43 行为
+      if (amix) { audioComplex = amix.complex; audioMap = amix.map; audioHas = true; }
+      else if (hasAudio) { audioComplex = null; audioMap = '0:a?'; audioHas = true; }
+      else { audioHas = false; }
+    }
     if (vfRes.complex) {
       // 多输入叠加图：把音频图并入同一 filter_complex（视频图末尾 [vout] + 音频图末尾 [aout]）
-      if (amix) {
-        args.push('-filter_complex', vfRes.complex + ';' + amix.complex);
-        args.push('-map', vfRes.map);
-        args.push('-map', amix.map);
-      } else {
-        args.push('-filter_complex', vfRes.complex);
-        args.push('-map', vfRes.map);
-        args.push('-map', '0:a?');          // 单路/无音频：沿用输入 0 音频直通
-      }
+      args.push('-filter_complex', vfRes.complex + (audioComplex ? (';' + audioComplex) : ''));
+      args.push('-map', vfRes.map);
+      if (audioComplex) args.push('-map', audioMap);
+      else if (audioHas) args.push('-map', audioMap || '0:a?');
     } else if (vfRes.vf) {
-      if (amix) {
-        // 视频走单输入 -vf 但音频多路（叠加源音频）→ 把 -vf 链包装成图，与音频图合并
-        args.push('-filter_complex', '[0:v]' + vfRes.vf + '[vout];' + amix.complex);
+      if (audioComplex) {
+        // 视频走单输入 -vf 但音频有图（叠加源/独立音源混音）→ 把 -vf 链包装成图，与音频图合并
+        args.push('-filter_complex', '[0:v]' + vfRes.vf + '[vout];' + audioComplex);
         args.push('-map', '[vout]');
-        args.push('-map', amix.map);
+        args.push('-map', audioMap);
       } else {
         args.push('-vf', vfRes.vf);
       }
     }
-    // 音频编码：有音频（主画面音频，或多路混音后必有音轨）时编码 AAC；否则禁音轨
-    if (hasAudio || amix) args.push('-c:a', 'aac', '-b:a', o.audioBr || '128k', '-ar', '44100');
+    // 音频编码：有音频（主画面/混音/独立音源）时编码 AAC；否则禁音轨
+    if (audioHas) args.push('-c:a', 'aac', '-b:a', o.audioBr || '128k', '-ar', '44100');
     else args.push('-an');
   }
   // 注入 -progress：stdout 每秒输出 frame/fps/bitrate/total_size/speed 键值对，供质量小窗实时图表。
@@ -1255,14 +1286,34 @@ ipcMain.handle('ff:probe', (_e, arg) => new Promise((resolve) => {
 // 这是直播场景下唯一可靠的音频实测来源。调用方需自行限流（每路流不要频繁拉起）。
 ipcMain.handle('ff:audioLevel', (_e, arg) => new Promise((resolve) => {
   const opt = (arg && typeof arg === 'object') ? arg : { url: arg };
-  const url = String(opt.url || '');
   const sec = Math.max(1, Math.min(6, Math.floor(Number(opt.seconds) || 2)));
   const bin = ffBin();
   if (!fs.existsSync(bin)) return resolve({ ok: false, error: '未找到内置 ffmpeg' });
-  if (!/^(https?|rtmp|artc|srt):\/\//i.test(url)) return resolve({ ok: false, error: '地址不合法' });
+  // v1.1.47：三类来源（与界面「声音来源」一一对应）：
+  //   { url }                        网络音频流 / 远端文件
+  //   { path }                       本地素材（探其音轨电平）
+  //   { deviceIndex, deviceName }    本机音频采集设备（外接声卡 / 麦克风 / 采集卡音频）
+  const url = String(opt.url || '');
+  const path = String(opt.path || '');
+  let inputArgs = null;
+  if (url) {
+    if (!/^(https?|rtmp|artc|srt):\/\//i.test(url)) return resolve({ ok: false, error: '地址不合法' });
+    inputArgs = ['-i', url];
+  } else if (path) {
+    if (!fs.existsSync(path)) return resolve({ ok: false, error: '本地文件不存在' });
+    inputArgs = ['-i', path];
+  } else if (opt.deviceIndex != null || opt.deviceName) {
+    if (process.platform === 'darwin') {
+      inputArgs = ['-f', 'avfoundation', '-i', ':' + (opt.deviceIndex != null ? opt.deviceIndex : '0')];
+    } else {
+      inputArgs = ['-f', 'dshow', '-i', 'audio=' + (opt.deviceName || opt.deviceIndex)];
+    }
+  } else {
+    return resolve({ ok: false, error: '未指定音频来源（url / path / 设备）' });
+  }
   // -vn 只留音频；astats 在结束帧打印 RMS level dB / Peak level dB
-  const args = ['-hide_banner', '-nostats', '-i', url, '-t', String(sec), '-vn',
-    '-af', 'astats=metadata=0:reset=0', '-f', 'null', '-'];
+  const args = ['-hide_banner', '-nostats'].concat(inputArgs, ['-t', String(sec), '-vn',
+    '-af', 'astats=metadata=0:reset=0', '-f', 'null', '-']);
   let out = '';
   let p;
   try { p = spawn(bin, args, { windowsHide: true }); }

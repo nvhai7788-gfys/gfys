@@ -1,6 +1,6 @@
 // 离线单测：ffmpeg-args.js 的 composeVideoFilter（旋转 / 文字 / 图片叠加）
 const assert = require('assert');
-const { composeVideoFilter, compileAudioMix } = require('../../ffmpeg-args');
+const { composeVideoFilter, compileAudioMix, composeAudioPlan } = require('../../ffmpeg-args');
 
 let pass = 0, fail = 0;
 function check(name, fn) {
@@ -131,6 +131,116 @@ check('compileAudioMix 过滤无效输入项', function () {
   var r = compileAudioMix([{ inIdx: 0 }, { volume: 1 }, { inIdx: 2 }]);
   assert.ok(r && r.complex);
   assert.ok(/amix=inputs=2/.test(r.complex), '应只混 2 路有效输入: ' + r.complex);
+});
+
+// ================= v1.1.47：独立音频源规划 composeAudioPlan =================
+
+// A1) 默认 source 模式 → 不追加输入，map 0:a?
+check('composeAudioPlan source（默认）→ 无输入 + map 0:a?', function () {
+  var r = composeAudioPlan({ mode: 'source' });
+  assert.deepStrictEqual(r.inputArgs, []);
+  assert.strictEqual(r.chain, null);
+  assert.strictEqual(r.map, '0:a?');
+  assert.strictEqual(r.mode, 'source');
+});
+
+// A2) off 模式 → 禁音轨
+check('composeAudioPlan off → 无输入 + map 空（禁音）', function () {
+  var r = composeAudioPlan({ mode: 'off' });
+  assert.deepStrictEqual(r.inputArgs, []);
+  assert.strictEqual(r.map, '');
+  assert.strictEqual(r.mode, 'off');
+});
+
+// A3) device 模式（Windows dshow）→ audio=<名>
+check('composeAudioPlan device（win dshow）→ audio=名', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceIndex: 2, deviceName: '麦克风', inputIndex: 3, isDarwin: false });
+  assert.deepStrictEqual(r.inputArgs, ['-f', 'dshow', '-i', 'audio=麦克风']);
+  assert.ok(/\[3:a\]/.test(r.chain), '链应以输入 3 为源: ' + r.chain);
+  assert.ok(/aresample=async=1:first_pts=0/.test(r.chain), '跨设备需 aresample 对齐: ' + r.chain);
+  assert.ok(/aformat=sample_rates=44100:channel_layouts=stereo/.test(r.chain), '统一格式: ' + r.chain);
+});
+
+// A4) device 模式（macOS avfoundation）→ :<idx>
+check('composeAudioPlan device（mac avfoundation）→ :索引', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceIndex: 1, inputIndex: 2, isDarwin: true });
+  assert.deepStrictEqual(r.inputArgs, ['-f', 'avfoundation', '-i', ':1']);
+});
+
+// A5) device 未选设备 → 降级 source + warn
+check('composeAudioPlan device 未选设备 → 降级 + warn', function () {
+  var r = composeAudioPlan({ mode: 'device' });
+  assert.strictEqual(r.mode, 'source');
+  assert.strictEqual(r.map, '0:a?');
+  assert.ok(r.warn, '应有降级说明');
+});
+
+// A6) url 模式 → -i 地址（rtsp 加 tcp）
+check('composeAudioPlan url → -i 地址', function () {
+  var r = composeAudioPlan({ mode: 'url', url: 'http://x/a.mp3', inputIndex: 4 });
+  assert.deepStrictEqual(r.inputArgs, ['-i', 'http://x/a.mp3']);
+  assert.ok(/\[4:a\]/.test(r.chain), '输入 4: ' + r.chain);
+});
+check('composeAudioPlan url（rtsp）→ -rtsp_transport tcp', function () {
+  var r = composeAudioPlan({ mode: 'url', url: 'rtsp://x/stream' });
+  assert.deepStrictEqual(r.inputArgs, ['-rtsp_transport', 'tcp', '-i', 'rtsp://x/stream']);
+});
+
+// A7) url 未填地址 → 降级 source + warn
+check('composeAudioPlan url 未填地址 → 降级 + warn', function () {
+  var r = composeAudioPlan({ mode: 'url' });
+  assert.strictEqual(r.mode, 'source');
+  assert.ok(r.warn, '应有降级说明');
+});
+
+// A8) 增益：+6 dB 进链；钳制到 ±20
+check('composeAudioPlan 增益 +6dB → volume=6dB', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceIndex: 0, gain: 6, inputIndex: 1 });
+  assert.ok(/volume=6dB/.test(r.chain), '应含 volume=6dB: ' + r.chain);
+});
+check('composeAudioPlan 增益钳制 >20 → 20', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceIndex: 0, gain: 99, inputIndex: 1 });
+  assert.ok(/volume=20dB/.test(r.chain), '钳制到 20dB: ' + r.chain);
+});
+check('composeAudioPlan 增益钳制 <-20 → -20', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceIndex: 0, gain: -99, inputIndex: 1 });
+  assert.ok(/volume=-20dB/.test(r.chain), '钳制到 -20dB: ' + r.chain);
+});
+
+// A9) 延迟：1.5s → adelay=1500|1500；钳制 0~5
+check('composeAudioPlan 延迟 1.5s → adelay=1500|1500', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceIndex: 0, delay: 1.5, inputIndex: 1 });
+  assert.ok(/adelay=1500\|1500/.test(r.chain), '应含 adelay=1500|1500: ' + r.chain);
+});
+check('composeAudioPlan 延迟钳制 >5 → 5000', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceIndex: 0, delay: 9, inputIndex: 1 });
+  assert.ok(/adelay=5000\|5000/.test(r.chain), '钳制到 5000: ' + r.chain);
+});
+
+// A10) 零增益零延迟 → 链不含 volume/adelay
+check('composeAudioPlan 零增益零延迟 → 链无 volume/adelay', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceIndex: 0, gain: 0, delay: 0, inputIndex: 1 });
+  assert.ok(!/volume=/.test(r.chain), '不应含 volume: ' + r.chain);
+  assert.ok(!/adelay=/.test(r.chain), '不应含 adelay: ' + r.chain);
+});
+
+// A11) 未知模式 → 降级 source
+check('composeAudioPlan 未知模式 → source', function () {
+  var r = composeAudioPlan({ mode: 'bogus' });
+  assert.strictEqual(r.mode, 'source');
+  assert.strictEqual(r.map, '0:a?');
+});
+
+// A12) 默认 inputIndex = 1（排在图片输入之后）
+check('composeAudioPlan 默认 inputIndex=1', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceIndex: 0 });
+  assert.ok(/\[1:a\]/.test(r.chain), '默认输入 1: ' + r.chain);
+});
+
+// A13) device 用 deviceName 兜底（无 index）
+check('composeAudioPlan device 仅 deviceName → audio=名', function () {
+  var r = composeAudioPlan({ mode: 'device', deviceName: '立体声混音', inputIndex: 1 });
+  assert.deepStrictEqual(r.inputArgs, ['-f', 'dshow', '-i', 'audio=立体声混音']);
 });
 
 console.log('\nffmpeg-args 单测: ' + pass + ' 通过 / ' + fail + ' 失败');

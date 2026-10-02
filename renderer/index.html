@@ -498,6 +498,13 @@
   .aviz .aviz-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     font-size: 11px; color: var(--text2); text-align: center; padding: 0 10px; pointer-events: none; }
   .aviz.off { display: none; }
+  /* v1.1.47：音频电平条（平均 RMS / 峰值 Peak，-60 dB → 0%，0 dB → 100%，触顶削波变红） */
+  .lp-meter-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .lp-meter-label { font-size: 11px; color: var(--text2); width: 30px; flex-shrink: 0; }
+  .lp-meter { flex: 1; height: 8px; border-radius: 4px; background: var(--card2); border: 1px solid var(--border); overflow: hidden; }
+  .lp-meter-fill { height: 100%; width: 0; background: var(--accent, #3b82f6); transition: width .15s ease, background .15s ease; border-radius: 4px; }
+  .lp-meter-fill.clip { background: var(--danger, #ef4444); }
+  .lp-meter-val { font-size: 11px; color: var(--text2); width: 44px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .qaviz { position: relative; height: 36px; margin-top: 8px; border-radius: 8px; overflow: hidden;
     background: var(--card2); border: 1px solid var(--border); }
   .qaviz canvas { display: block; width: 100%; height: 100%; }
@@ -600,7 +607,7 @@
     <div class="brand">
       <svg viewBox="0 0 24 24"><path fill="#3d7bfd" d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2z"/><path fill="#22d3ee" d="M12 6a6 6 0 1 0 6 6h-2a4 4 0 1 1-4-4V6z"/><circle fill="#3d7bfd" cx="12" cy="12" r="2.4"/></svg>
       港丰影视直播工作台
-      <span class="top-ver" id="topVerText">v1.1.46</span>
+      <span class="top-ver" id="topVerText">v1.1.47</span>
     </div>
     <span class="conn-badge" id="connBadge"><span class="dot"></span><span id="connText">未连接</span></span>
     <div class="spacer"></div>
@@ -616,7 +623,7 @@
       <div class="side-version" id="sideVersion">
         <span class="sv-dot"></span>
         <span class="sv-label">港丰影视</span>
-        <span class="sv-text" id="sideVerText">v1.1.46</span>
+        <span class="sv-text" id="sideVerText">v1.1.47</span>
       </div>
       <div class="nav-group">总览</div>
       <button class="nav-item active" data-view="overview">
@@ -1585,6 +1592,47 @@
             <div class="msg" id="lpPushMsg"></div>
         </div>
 
+        <!-- v1.1.47：音频来源（声音与画面解耦）+ 音频检测（ffmpeg 真解码电平） -->
+        <div class="card" style="margin-top:14px">
+          <h3 style="font-size:14px;margin:0 0 8px">🎚 音频来源与检测</h3>
+          <div class="form-row">
+            <div><label>声音来源</label>
+              <select id="lpAudioMode">
+                <option value="source" selected>跟随画面来源（默认）</option>
+                <option value="device">外接声卡 / 麦克风（独立音频设备）</option>
+                <option value="url">网络音频流 / 本地音频文件</option>
+                <option value="off">关闭（无声音）</option>
+              </select>
+            </div>
+            <div id="lpAudioDevBox" style="display:none"><label>音频设备</label>
+              <select id="lpAudioDev"><option value="">先「扫描设备」再选择</option></select>
+              <button class="btn btn-sm" id="lpAudioScanBtn" style="margin-top:6px">扫描设备</button>
+            </div>
+            <div id="lpAudioUrlBox" style="display:none"><label>音频流地址 / 文件</label>
+              <input id="lpAudioUrl" placeholder="rtmp://… / http://… 或本机音频文件路径">
+            </div>
+          </div>
+          <div class="form-row" style="margin-top:8px">
+            <div><label>增益（dB）</label>
+              <input id="lpAudioGain" type="number" min="-20" max="20" step="1" value="0" placeholder="-20 ~ 20">
+            </div>
+            <div><label>延迟补偿（秒）</label>
+              <input id="lpAudioDelay" type="number" min="0" max="5" step="0.1" value="0" placeholder="0 ~ 5">
+            </div>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-weight:400">
+            <input type="checkbox" id="lpAudioMix" checked> 与画面自带音轨混音（画面音频为主时钟；关闭则独立音源独占音轨）
+          </label>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+            <button class="btn btn-sm" id="lpAudioLevelBtn">🔊 检测音频电平</button>
+            <div id="lpAudioMeters" style="flex:1">
+              <div class="lp-meter-row"><span class="lp-meter-label">平均</span><div class="lp-meter"><div class="lp-meter-fill" id="lpRmsFill"></div></div><span class="lp-meter-val" id="lpRmsVal">--</span></div>
+              <div class="lp-meter-row"><span class="lp-meter-label">峰值</span><div class="lp-meter"><div class="lp-meter-fill" id="lpPeakFill"></div></div><span class="lp-meter-val" id="lpPeakVal">--</span></div>
+            </div>
+          </div>
+          <div class="kv" id="lpAudioLevelNote" style="margin-top:6px">电平用内置 ffmpeg 真解码（astats）量 RMS / Peak，直播流经 MSE 播放时 Web Audio 拿不到数据，真解码才是可靠来源。推流中每 5 秒自动复检。</div>
+        </div>
+
         <!-- v1.1.31：本地推流实时输出预览（置于推流按钮下方，OBS Program 同款实时监看） -->
         <div class="card" style="margin-top:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
@@ -2385,7 +2433,7 @@
 <div class="mask hidden" id="aboutMask" style="z-index:190">
   <div class="modal" style="width:640px">
     <h3>关于与免责声明</h3>
-    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.46</span></div>
+    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.47</span></div>
     <div class="about-scroll">
       <div class="about-sec">
         <h4>一、免责声明</h4>
@@ -10151,8 +10199,28 @@ function lpLanePayload(idx) {
     // v1.1.38：libobs 真引擎（可选）——携带完整 OBS 形态 Program 场景 + 引擎选择，供主进程走原生合成/输出
     obsScene: SE.programScene(),
     engine: lpEngineMode(),
+    // v1.1.47：独立音频源规划（声音与画面解耦）
+    audioPlan: lpAudioPlanPayload(),
     label: '第' + (idx + 1) + '路 ' + (($('lpLabel').value.trim()) || ('推流 ' + (idx + 1)))
   };
+}
+// v1.1.47：组装音频规划 payload（跟随画面 / 外接声卡 / 网络音频流 / 关闭 + 增益/延迟/混音）
+function lpAudioPlanPayload() {
+  var mode = $('lpAudioMode') ? $('lpAudioMode').value : 'source';
+  var plan = { mode: mode, mix: ($('lpAudioMix') ? $('lpAudioMix').checked : true) };
+  var gain = parseFloat(($('lpAudioGain') && $('lpAudioGain').value) || '0');
+  var delay = parseFloat(($('lpAudioDelay') && $('lpAudioDelay').value) || '0');
+  plan.gain = isNaN(gain) ? 0 : gain;
+  plan.delay = isNaN(delay) ? 0 : delay;
+  if (mode === 'device') {
+    var devNames = window._lpDevNames || {};
+    var idx = $('lpAudioDev') ? $('lpAudioDev').value : '';
+    plan.deviceIndex = idx;
+    plan.deviceName = devNames['a' + idx] || '';
+  } else if (mode === 'url') {
+    plan.url = ($('lpAudioUrl') ? $('lpAudioUrl').value.trim() : '');
+  }
+  return plan;
 }
 // v1.1.38：引擎选择——用户勾选 libobs 且原生桥接可用且单路推流时才切 libobs，否则 ffmpeg
 function lpEngineMode() {
@@ -10162,6 +10230,125 @@ function lpEngineMode() {
   var active = 0;
   for (var i = 0; i < lpLanes.length; i++) if ((lpLanes[i].url || '').trim()) active++;
   return (ok && active <= 1) ? 'libobs' : 'ffmpeg';
+}
+// ===================== v1.1.47：音频来源与检测 =====================
+// 声音来源模式切换：显示/隐藏对应的配置项，并联动刷新电平区（配置不成立时刷成「无法检测」）
+function lpAudioModeApply() {
+  var mode = $('lpAudioMode') ? $('lpAudioMode').value : 'source';
+  if ($('lpAudioDevBox')) $('lpAudioDevBox').style.display = (mode === 'device') ? '' : 'none';
+  if ($('lpAudioUrlBox')) $('lpAudioUrlBox').style.display = (mode === 'url') ? '' : 'none';
+  // 增益/延迟/混音仅对独立音源（device/url）有意义
+  var indep = (mode === 'device' || mode === 'url');
+  if ($('lpAudioGain')) $('lpAudioGain').disabled = !indep;
+  if ($('lpAudioDelay')) $('lpAudioDelay').disabled = !indep;
+  if ($('lpAudioMix')) $('lpAudioMix').disabled = !indep;
+  lpAudioLevelReset();
+}
+// 扫描音频设备（复用 ff:devices，只取音频设备填充独立音源下拉）
+$('lpAudioScanBtn').addEventListener('click', function () {
+  var btn = this;
+  btn.disabled = true; btn.textContent = '扫描中…';
+  window.tcapi.ffDevices().then(function (r) {
+    btn.disabled = false; btn.textContent = '扫描设备';
+    if (!r.ok) { toast(r.error, true); return; }
+    var aOpts = '<option value="">请选择音频设备</option>';
+    (r.devices || []).forEach(function (d) {
+      if (d.type !== 'audio') return;
+      aOpts += '<option value="' + d.index + '">' + esc(d.name) + ' [' + d.index + ']</option>';
+      window._lpDevNames = window._lpDevNames || {};
+      window._lpDevNames['a' + d.index] = d.name;
+    });
+    $('lpAudioDev').innerHTML = aOpts;
+    var audios = (r.devices || []).filter(function (d) { return d.type === 'audio'; });
+    if (!audios.length) toast('未枚举到音频设备（macOS 需授权麦克风权限）', true);
+    else { toast('已发现 ' + audios.length + ' 个音频设备'); }
+  });
+});
+// 电平条刷新：把 dB 映射到 0~100%（-60→0，0→100，触顶削波变红）
+function lpAudioMeterPaint(rmsDb, peakDb) {
+  function lvl(db) {
+    if (db == null) return null;
+    var p = Math.round((db + 60) / 60 * 100);
+    if (p < 0) p = 0; if (p > 100) p = 100;
+    return p;
+  }
+  function paint(fillId, valId, db) {
+    var fill = $(fillId), val = $(valId);
+    if (!fill || !val) return;
+    var p = lvl(db);
+    if (p == null) { fill.style.width = '0%'; fill.classList.remove('clip'); val.textContent = '--'; return; }
+    fill.style.width = p + '%';
+    fill.classList.toggle('clip', db > -1);   // 接近 0 dB（触顶）视为削波
+    val.textContent = (db <= -90 ? '-∞' : db.toFixed(1)) + ' dB';
+  }
+  paint('lpRmsFill', 'lpRmsVal', rmsDb);
+  paint('lpPeakFill', 'lpPeakVal', peakDb);
+}
+// 配置不成立时把电平区刷成「无法检测」，避免停在上一次结果上误导
+function lpAudioLevelReset() {
+  lpAudioMeterPaint(null, null);
+  var note = $('lpAudioLevelNote');
+  if (note) note.textContent = '电平用内置 ffmpeg 真解码（astats）量 RMS / Peak，直播流经 MSE 播放时 Web Audio 拿不到数据，真解码才是可靠来源。推流中每 5 秒自动复检。';
+}
+// 构造当前音频来源对应的 ff:audioLevel 入参（三类来源）
+function lpAudioLevelArg() {
+  var plan = lpAudioPlanPayload();
+  if (plan.mode === 'device') {
+    var di = (plan.deviceIndex == null || plan.deviceIndex === '') ? null : plan.deviceIndex;
+    if (di == null && !plan.deviceName) return null;
+    return { deviceIndex: di, deviceName: plan.deviceName || '' };
+  }
+  if (plan.mode === 'url') {
+    if (!plan.url) return null;
+    // 本地文件路径走 path，网络地址走 url
+    if (/^[a-z]+:\/\//i.test(plan.url)) return { url: plan.url };
+    return { path: plan.url };
+  }
+  // source：跟随画面来源——探主画面音轨（本地素材用 path，设备用设备音频）
+  if (plan.mode === 'source') {
+    var srcType = lpSrcType();
+    if (srcType === 'file') {
+      var files = lpPlayFiles();
+      if (files && files.length) return { path: files[0] };
+      return null;
+    }
+    // 设备源：探其音频设备（若已选）
+    var devNames = window._lpDevNames || {};
+    var da = $('lpDeviceAudio') ? $('lpDeviceAudio').value : '';
+    if (da) return { deviceIndex: da, deviceName: devNames['a' + da] || '' };
+    return null;
+  }
+  return null;
+}
+// 实测音频电平（单次）
+var _lpAudioLevelBusy = false;
+function lpAudioLevelRun() {
+  if (_lpAudioLevelBusy) return;
+  var arg = lpAudioLevelArg();
+  if (!arg) { lpAudioMeterPaint(null, null); toast('当前配置无音频来源可测（图片无音轨 / 未选设备 / 未填地址）', true); return; }
+  _lpAudioLevelBusy = true;
+  var btn = $('lpAudioLevelBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '检测中…'; }
+  window.tcapi.ffAudioLevel(arg).then(function (r) {
+    _lpAudioLevelBusy = false;
+    if (btn) { btn.disabled = false; btn.textContent = '🔊 检测音频电平'; }
+    if (!r.ok) { lpAudioMeterPaint(null, null); toast('音频电平检测失败：' + (r.error || '未知'), true); return; }
+    if (!r.hasAudio) { lpAudioMeterPaint(null, null); toast('该来源无音轨（无音频数据）', true); return; }
+    lpAudioMeterPaint(r.rmsDb, r.peakDb);
+  });
+}
+$('lpAudioLevelBtn').addEventListener('click', lpAudioLevelRun);
+// 模式切换时联动（首次初始化也调用一次，恢复持久化选择）
+if ($('lpAudioMode')) $('lpAudioMode').addEventListener('change', lpAudioModeApply);
+// 推流中每 5 秒自动复检电平（挂在推流按钮状态机上；停播即收工，不空闲白拉 ffmpeg 进程）
+var _lpAudioLevelTimer = null;
+function lpAudioLevelAuto() {
+  if (_lpAudioLevelTimer) { clearInterval(_lpAudioLevelTimer); _lpAudioLevelTimer = null; }
+  if ($('lpStartBtn') && $('lpStartBtn').dataset.pushing === '1') {
+    _lpAudioLevelTimer = setInterval(function () {
+      try { lpAudioLevelRun(); } catch (e) { /* */ }
+    }, 5000);
+  }
 }
 // r68：H.265/VP9 与推流协议兼容性前端预检（与主进程 codecMuxProblem 同口径，提前拦下省一次起进程）
 function lpCodecProtoCheck(url) {
@@ -10777,6 +10964,8 @@ function lpSetPushBtnState(pushing) {
     btn.textContent = '▶ 开始推流';
     btn.title = '';
   }
+  // v1.1.47：推流中每 5 秒自动复检音频电平；停播立即收工
+  try { lpAudioLevelAuto(); } catch (e) { /* */ }
 }
 // r67/r68：停止推流（r68 改为停止全部正在运行的路）
 function lpStopPush() {
@@ -12227,6 +12416,8 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   // 回收上次未收尾的外部流历史（应用被强杀 / 崩溃时留下的「进行中」记录）
   extHistRecover();
+  // v1.1.47：音频来源 UI 初始化（恢复模式选择、显隐联动；未选模式时用默认）
+  try { lpAudioModeApply(); } catch (e) { /* */ }
   if (state.cfg.secretId && state.cfg.secretKey && state.cfg.rememberPwd !== false) {
     enterApp(true);
   } else {
@@ -12241,7 +12432,7 @@ document.addEventListener('DOMContentLoaded', function () {
 // 版本号显示（登录页徽标 / 设置页），版本来自 package.json（electron app.getVersion）
 (function initVerBadge() {
   try {
-    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.46');
+    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.47');
     var lv = document.getElementById('loginVer'); if (lv) lv.textContent = ver;
     var sv = document.getElementById('stVer'); if (sv) sv.textContent = ver;
     var sv2 = document.getElementById('sideVerText'); if (sv2) sv2.textContent = ver;
