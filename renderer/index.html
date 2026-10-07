@@ -1590,7 +1590,7 @@
               </div>
             </div>
             <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-weight:400">
-              <input type="checkbox" id="lpReconn" checked> 推流中断自动重连（OBS 同款：意外断开后每 5 秒重试，最多 5 次）
+              <input type="checkbox" id="lpReconn" checked> 推流中断自动重连（OBS 同款：退避重试 2→4→8→16→30 秒，连续成功 1 分钟后重新计次；编码器/参数等不可恢复错误不重试）
             </label>
             <!-- v1.1.38：libobs 真引擎（可选）——原生桥接未打包时禁用并提示回退 ffmpeg -->
             <label id="lpLibobsRow" style="display:none;align-items:center;gap:6px;margin-top:6px;font-weight:400">
@@ -10851,7 +10851,9 @@ $('lpRecBtn').addEventListener('click', function () {
     var stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
     var out = (dirPath ? dirPath + '/' : '') + prefix + '-' + stamp + '.mp4';
     msg.className = 'msg'; msg.textContent = srcDevice ? '正在启动采集设备录制…' : '正在连接并录制…';
-    window.tcapi.ff({ kind: 'record', url: url, source: srcDevice, out: out, recordBitrate: $('lpRecBitrate').value.trim(), recordMaxrate: $('lpRecMaxrate') ? $('lpRecMaxrate').value.trim() : '', label: srcDevice ? ('采集录制 ' + (($('lpRecDeviceVideo').selectedOptions || [])[0] ? $('lpRecDeviceVideo').selectedOptions[0].label : '')) : ('录制 ' + url.slice(0, 60)) }).then(function (r) {
+    // v1.1.49：录制默认开启断流自动续录（写入 _partNN 新分段，已录内容不会被覆盖）。
+    // 这是数据保全而非「要不要重试」的可选项，故不挂在推流的自动重连开关上，固定启用。
+    window.tcapi.ff({ kind: 'record', url: url, source: srcDevice, out: out, autoRestart: true, recordBitrate: $('lpRecBitrate').value.trim(), recordMaxrate: $('lpRecMaxrate') ? $('lpRecMaxrate').value.trim() : '', label: srcDevice ? ('采集录制 ' + (($('lpRecDeviceVideo').selectedOptions || [])[0] ? $('lpRecDeviceVideo').selectedOptions[0].label : '')) : ('录制 ' + url.slice(0, 60)) }).then(function (r) {
       if (!r.ok) { msg.className = 'msg err'; msg.textContent = r.error; return; }
       msg.className = 'msg ok'; msg.textContent = '录制中 → ' + out;
       btn.textContent = '⏹ 停止录制'; btn.dataset.recId = r.id;
