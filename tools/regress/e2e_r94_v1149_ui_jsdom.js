@@ -157,7 +157,19 @@ async function run() {
   check('U19 关闭滚动后预览芯片不再带 marquee',
     (doc.getElementById('lpPrevOverlay').innerHTML || '').indexOf('marquee') < 0);
 
-  check('U20 无 jsdom 致命错误', !jsdomErr, jsdomErr ? jsdomErr.message : '');
+  // ===== ⑥ payload 字段存在性（防「功能实现了但没接线」） =====
+  // v1.1.50 教训：录制续录在主进程已实现，但渲染层 payload 漏传 autoRestart → 功能形同虚设，
+  // 而既有 258 项测试全绿也没发现（单测只覆盖「传了会怎样」，没覆盖「到底传没传」）。
+  // 故此处补上「payload 必须带上关键字段」的断言。
+  ex('(function(){ state.cfg.lpAudioFilters = { gain_filter:{on:true,db:4} }; lpRenderAudioFilters(); })()');
+  const lane = ex('JSON.stringify(lpLanePayload(0))');
+  check('U20 lpLanePayload 携带 audioFilters（音频滤镜真正下发到主进程）',
+    lane.indexOf('"audioFilters"') >= 0 && lane.indexOf('gain_filter') >= 0, lane.slice(0, 300));
+  check('U21 lpLanePayload 携带 autoRestart（自动重连真正下发到主进程）',
+    lane.indexOf('"autoRestart"') >= 0, lane.slice(0, 300));
+  ex('(function(){ state.cfg.lpAudioFilters = {}; lpRenderAudioFilters(); })()');
+
+  check('U22 无 jsdom 致命错误', !jsdomErr, jsdomErr ? jsdomErr.message : '');
 
   clearTimeout(watchdog);
   const pass = results.filter((r) => r.ok).length;

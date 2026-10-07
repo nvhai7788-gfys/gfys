@@ -426,9 +426,13 @@
     function toLegacy(sources) {
       return (sources || []).map(function (s) {
         var st = s.settings || {};
+        // v1.1.50：来源缺 transform 时不能直接取属性 —— 旧版本保存的场景配置、
+        // 手工构造的来源、以及 importCollection 导入的不完整数据都可能没有这个字段，
+        // 一旦缺失会在构造推流 payload 时抛 TypeError，导致「点开始推流直接崩」。
+        var tf = s.transform || {};
         var common = {
           id: s.id, namesource: s.name, enabled: s.enabled !== false,
-          pos: s.transform.pos, x: s.transform.x, y: s.transform.y,
+          pos: tf.pos, x: tf.x, y: tf.y,
           transform: s.transform,
           // v1.1.43：音频控制透传（多源混音用）
           volume: (s.volume !== undefined) ? s.volume : 1,
