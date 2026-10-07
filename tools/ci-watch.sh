@@ -4,7 +4,12 @@
 RUN_ID="${1:-36958704565}"
 MAX_SEC="${2:-3000}"
 REPO="nvhai7788-gfys/gfys"
-NODE="C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe"
+# v1.1.51：不要硬编码具体版本号 —— 沙箱升级 node 后旧路径会失效
+# （曾踩：写死 22.22.2-3，node 升到 22.22.2-6 后脚本静默退化成「空转 40 分钟然后超时」，
+#   因为 JSON 解析不了，永远凑不齐 DONE= 计数）。这里按版本号倒序自动挑最新的可用 node。
+NODE="$(ls -d C:/Users/Administrator/.workbuddy/binaries/node/versions/*/node.exe 2>/dev/null | sort -Vr | head -1)"
+if [ -z "$NODE" ] || [ ! -f "$NODE" ]; then NODE="$(command -v node || echo node)"; fi
+echo "node: $NODE"
 INTERVAL=60
 START=$(date +%s)
 
