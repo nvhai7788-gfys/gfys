@@ -58,5 +58,7 @@ contextBridge.exposeInMainWorld('tcapi', {
   onOutMoved: (cb) => ipcRenderer.on('out:moved', (_e, data) => cb(data)),
   onFfLog: (cb) => ipcRenderer.on('ff:log', (_e, data) => cb(data)),
   onFfProgress: (cb) => ipcRenderer.on('ff:progress', (_e, data) => cb(data)),
-  onFfRestarted: (cb) => ipcRenderer.on('ff:restarted', (_e, data) => cb(data))
+  onFfRestarted: (cb) => ipcRenderer.on('ff:restarted', (_e, data) => cb(data)),
+  // v1.1.49：自动重连进度（waiting / retried / gaveup / fatal）
+  onFfReconnect: (cb) => ipcRenderer.on('ff:reconnect', (_e, data) => cb(data))
 });

@@ -269,6 +269,11 @@
   /* v1.1.33：场景合成预览已并入工作室 PVM/PGM（.lp-pane.port 控制横竖屏），不再单独画布 */
   .lp-stage-chip { position: absolute; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; background: rgba(45,120,255,.28); border: 1px solid rgba(90,160,255,.75); border-radius: 4px; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 0 4px; max-width: 60%; pointer-events: auto; }
   .lp-stage-chip.sel { border-color: #ffb347; box-shadow: 0 0 0 1px #ffb347; background: rgba(255,179,71,.25); }
+  /* v1.1.49：跑马灯滚动字幕预览（与 ffmpeg 端 x 时间表达式同效果，仅用于画示意） */
+  @keyframes lpMarqueeL { from { transform: translateX(60%); } to { transform: translateX(-160%); } }
+  @keyframes lpMarqueeR { from { transform: translateX(-160%); } to { transform: translateX(60%); } }
+  .lp-stage-chip.marquee { max-width: 100%; overflow: visible; background: none; border: none; padding: 0; }
+  .lp-stage-chip.marquee > span { display: inline-block; white-space: nowrap; text-shadow: 0 1px 3px rgba(0,0,0,.85); }
   .lp-src-row { display: flex; gap: 6px; align-items: center; padding: 5px 6px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 4px; cursor: pointer; background: var(--bg2, transparent); }
   .lp-src-row.sel { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
   .lp-src-row .src-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
@@ -504,6 +509,13 @@
   .lp-meter { flex: 1; height: 8px; border-radius: 4px; background: var(--card2); border: 1px solid var(--border); overflow: hidden; }
   .lp-meter-fill { height: 100%; width: 0; background: var(--accent, #3b82f6); transition: width .15s ease, background .15s ease; border-radius: 4px; }
   .lp-meter-fill.clip { background: var(--danger, #ef4444); }
+  /* v1.1.49：音频滤镜行 */
+  .lp-af-row { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--card2); }
+  .lp-af-row.on { border-color: rgba(90,160,255,.75); background: rgba(59,130,246,.07); }
+  .lp-af-head { display: flex; align-items: center; gap: 6px; font-weight: 400; cursor: pointer; }
+  .lp-af-params { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--text2); }
+  .lp-af-params label { display: flex; align-items: center; gap: 4px; font-weight: 400; }
+  .lp-af-hint { font-size: 11px; color: var(--text2); margin-top: 4px; opacity: .85; line-height: 1.5; }
   .lp-meter-val { font-size: 11px; color: var(--text2); width: 44px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .qaviz { position: relative; height: 36px; margin-top: 8px; border-radius: 8px; overflow: hidden;
     background: var(--card2); border: 1px solid var(--border); }
@@ -607,7 +619,7 @@
     <div class="brand">
       <svg viewBox="0 0 24 24"><path fill="#3d7bfd" d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2z"/><path fill="#22d3ee" d="M12 6a6 6 0 1 0 6 6h-2a4 4 0 1 1-4-4V6z"/><circle fill="#3d7bfd" cx="12" cy="12" r="2.4"/></svg>
       港丰影视直播工作台
-      <span class="top-ver" id="topVerText">v1.1.48</span>
+      <span class="top-ver" id="topVerText">v1.1.49</span>
     </div>
     <span class="conn-badge" id="connBadge"><span class="dot"></span><span id="connText">未连接</span></span>
     <div class="spacer"></div>
@@ -623,7 +635,7 @@
       <div class="side-version" id="sideVersion">
         <span class="sv-dot"></span>
         <span class="sv-label">港丰影视</span>
-        <span class="sv-text" id="sideVerText">v1.1.48</span>
+        <span class="sv-text" id="sideVerText">v1.1.49</span>
       </div>
       <div class="nav-group">总览</div>
       <button class="nav-item active" data-view="overview">
@@ -1633,6 +1645,20 @@
           <div class="kv" id="lpAudioLevelNote" style="margin-top:6px">电平用内置 ffmpeg 真解码（astats）量 RMS / Peak，直播流经 MSE 播放时 Web Audio 拿不到数据，真解码才是可靠来源。推流中每 5 秒自动复检。</div>
         </div>
 
+        <!-- v1.1.49：音频滤镜（OBS 同款音频处理链，落地到 ffmpeg） -->
+        <div class="card" style="margin-top:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+            <h3 style="font-size:14px;margin:0">🎛 音频滤镜（降噪 / 压缩 / 限幅）</h3>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm" id="lpAfPresetVoice">人声直播预设</button>
+              <button class="btn btn-sm" id="lpAfPresetMusic">音乐/现场预设</button>
+              <button class="btn btn-sm" id="lpAfReset">全部关闭</button>
+            </div>
+          </div>
+          <div class="kv" style="margin-bottom:8px">按 OBS 信号链顺序串接：<b>噪声抑制 → 增益 → 噪声门 → 压缩器 → 限幅器</b>。统一作用于最终输出音轨（无论声音来自画面、外接声卡还是多路混音），只跑一次。修改后下次推流生效。</div>
+          <div id="lpAudioFilters"></div>
+        </div>
+
         <!-- v1.1.31：本地推流实时输出预览（置于推流按钮下方，OBS Program 同款实时监看） -->
         <div class="card" style="margin-top:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
@@ -2462,7 +2488,7 @@
 <div class="mask hidden" id="aboutMask" style="z-index:190">
   <div class="modal" style="width:640px">
     <h3>关于与免责声明</h3>
-    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.48</span></div>
+    <div class="sub">港丰影视直播工作台 · <span id="aboutVer">v1.1.49</span></div>
     <div class="about-scroll">
       <div class="about-sec">
         <h4>一、免责声明</h4>
@@ -9675,7 +9701,20 @@ function lpChipsFor(scene, selIdx) {
     if (isText) st += 'font-size:' + Math.max(11, Math.round((Number(set.font_size || set.fontsize || 32) / 30)) + 'px;');
     else st += 'min-width:18%;min-height:12%;';
     var txt = isText ? (set.text || '文字') : ('🖼 ' + (((set.file || set.local_file || s.path || '').split('/').pop() || '图片')));
-    chips += '<div class="lp-stage-chip' + (i === selIdx ? ' sel' : '') + '" data-si="' + i + '" style="' + st + '" title="点击选中来源 ' + (i + 1) + '">' + esc(txt) + '</div>';
+    var cls = 'lp-stage-chip' + (i === selIdx ? ' sel' : '');
+    var html = esc(txt);          // 默认走转义；跑马灯分支才用已转义的 span 包裹
+    if (isText && set.scroll) {
+      // v1.1.49：跑马灯 —— 预览层用 CSS 动画示意（真出画走 ffmpeg 的 x 时间表达式）
+      var px = Math.max(9, Math.round(Number(set.font_size || set.fontsize || 32) / 30));
+      var tw = Math.max(80, String(set.text || '').length * px * 0.6);
+      var sp = Number(set.scroll_speed) || 60;
+      var dur = Math.max(3, Math.round(((1000 + tw) / sp) * 10) / 10);
+      cls += ' marquee';
+      st = 'left:0;right:0;bottom:8%;font-size:' + px + 'px;' +
+        'animation:lpMarquee' + ((set.scroll_dir === 'right') ? 'R' : 'L') + ' ' + dur + 's linear infinite;';
+      html = '<span>' + esc(set.text || '文字') + '</span>';
+    }
+    chips += '<div class="' + cls + '" data-si="' + i + '" style="' + st + '" title="点击选中来源 ' + (i + 1) + '">' + html + '</div>';
   });
   return chips;
 }
@@ -9763,7 +9802,13 @@ function lpRenderSources() {
     } else if (s.type === 'text_ft2_source') {
       detail += '<input data-i="' + i + '" data-k="text" value="' + esc(st.text || '') + '" placeholder="文字内容" style="flex:1;min-width:120px">' +
         '<label style="font-size:12px">字号</label><input data-i="' + i + '" data-k="font_size" value="' + esc(st.font_size || 92) + '" style="width:50px">' +
-        '<label style="font-size:12px">色</label><input data-i="' + i + '" data-k="color" value="' + esc(st.color || '#ffffff') + '" style="width:60px">';
+        '<label style="font-size:12px">色</label><input data-i="' + i + '" data-k="color" value="' + esc(st.color || '#ffffff') + '" style="width:60px">' +
+        // v1.1.49：跑马灯滚动字幕（直播公告 / 活动信息 / 版权条刚需）
+        '<label style="font-size:12px" title="跑马灯横向滚动，覆盖 X 坐标"><input type="checkbox" data-i="' + i + '" data-k="scroll" ' + (st.scroll ? 'checked' : '') + '>滚动</label>' +
+        '<input data-i="' + i + '" data-k="scroll_speed" value="' + esc(st.scroll_speed || 60) + '" style="width:44px" title="滚动速度（像素/秒）">' +
+        '<select data-i="' + i + '" data-k="scroll_dir" style="width:52px" title="滚动方向">' +
+        '<option value="left"' + ((st.scroll_dir || 'left') === 'left' ? ' selected' : '') + '>← 左</option>' +
+        '<option value="right"' + (st.scroll_dir === 'right' ? ' selected' : '') + '>右 →</option></select>';
     } else if (s.type === 'browser_source') {
       detail += '<input data-i="' + i + '" data-k="url" value="' + esc(st.url || '') + '" placeholder="URL" style="flex:1;min-width:140px">';
     }
@@ -10176,6 +10221,10 @@ if (lpSrcBox) lpSrcBox.addEventListener('change', function (e) {
   else if (k === 'text') st.text = t.value;
   else if (k === 'font_size') st.font_size = Number(t.value) || 92;
   else if (k === 'color') st.color = t.value;
+  // v1.1.49：跑马灯滚动字幕
+  else if (k === 'scroll') st.scroll = t.checked;
+  else if (k === 'scroll_speed') st.scroll_speed = Number(t.value) || 60;
+  else if (k === 'scroll_dir') st.scroll_dir = t.value;
   else if (k === 'url') st.url = t.value;
   else if (k === 'looping') st.looping = t.checked;
   else if (k === 'x') { if (s.transform) s.transform.x = t.value || '10'; }
@@ -10231,6 +10280,8 @@ function lpLanePayload(idx) {
     // v1.1.38：libobs 真引擎（可选）——携带完整 OBS 形态 Program 场景 + 引擎选择，供主进程走原生合成/输出
     obsScene: SE.programScene(),
     engine: lpEngineMode(),
+    // v1.1.49：音频滤镜（降噪/增益/噪声门/压缩器/限幅器），主进程 composeAudioFilter 编译
+    audioFilters: lpAudioFiltersPayload(),
     // v1.1.47：独立音频源规划（声音与画面解耦）
     audioPlan: lpAudioPlanPayload(),
     label: '第' + (idx + 1) + '路 ' + (($('lpLabel').value.trim()) || ('推流 ' + (idx + 1)))
@@ -10382,6 +10433,105 @@ function lpAudioLevelAuto() {
     }, 5000);
   }
 }
+// ===================== v1.1.49：音频滤镜（OBS 同款处理链） =====================
+// 与 ffmpeg-args.js 的 AUDIO_FILTERS 一一对应；参数范围在主进程侧再做一次钳制，
+// 这里只是给界面提供输入边界，避免用户填出 ffmpeg 会直接拒的值。
+var LP_AF_DEFS = [
+  { id: 'noise_suppress_filter', name: '🔇 噪声抑制', hint: 'FFT 降噪，压掉环境底噪（风扇 / 空调 / 电流声）。值越小降噪越狠，过低会让人声发闷。',
+    params: [{ k: 'amount', label: '噪声基底 dB', min: -80, max: -20, step: 1, def: -20 }] },
+  { id: 'gain_filter', name: '🔊 增益', hint: '整体提升或衰减音量，用于匹配不同设备的输入电平。',
+    params: [{ k: 'db', label: '增益 dB', min: -30, max: 30, step: 1, def: 0 }] },
+  { id: 'noise_gate_filter', name: '🚪 噪声门', hint: '低于阈值时静音，消除说话间隙的环境噪声。',
+    params: [{ k: 'threshold', label: '开启阈值 dB', min: -90, max: 0, step: 1, def: -40 },
+             { k: 'range', label: '衰减量 dB', min: -90, max: 0, step: 1, def: -60 }] },
+  { id: 'compressor_filter', name: '📉 压缩器', hint: '压平动态范围：小声提上来、大声压下去，直播人声稳定的关键。',
+    params: [{ k: 'threshold', label: '阈值 dB', min: -60, max: 0, step: 1, def: -18 },
+             { k: 'ratio', label: '压缩比', min: 1, max: 20, step: 0.5, def: 4 },
+             { k: 'makeup', label: '补偿 dB', min: 0, max: 24, step: 1, def: 0 }] },
+  { id: 'limiter_filter', name: '🛑 限幅器', hint: '硬顶天花板，防止突然爆音削波（建议常开，-3 dB 即可）。',
+    params: [{ k: 'threshold', label: '上限 dB', min: -24, max: 0, step: 1, def: -3 }] }
+];
+// 预设：人声直播（降噪 + 门 + 中等压缩 + 限幅）/ 音乐现场（轻降噪 + 轻压缩 + 限幅）
+var LP_AF_PRESETS = {
+  voice: { noise_suppress_filter: { on: true, amount: -25 }, gain_filter: { on: true, db: 3 },
+           noise_gate_filter: { on: true, threshold: -45, range: -60 },
+           compressor_filter: { on: true, threshold: -18, ratio: 4, makeup: 3 },
+           limiter_filter: { on: true, threshold: -3 } },
+  music: { noise_suppress_filter: { on: true, amount: -35 }, gain_filter: { on: false, db: 0 },
+           noise_gate_filter: { on: false, threshold: -40, range: -60 },
+           compressor_filter: { on: true, threshold: -12, ratio: 2, makeup: 0 },
+           limiter_filter: { on: true, threshold: -2 } }
+};
+function lpAudioFiltersCfg() {
+  if (!state.cfg.lpAudioFilters) state.cfg.lpAudioFilters = {};
+  return state.cfg.lpAudioFilters;
+}
+function lpRenderAudioFilters() {
+  var box = $('lpAudioFilters'); if (!box) return;
+  var cfg = lpAudioFiltersCfg();
+  box.innerHTML = LP_AF_DEFS.map(function (d) {
+    var c = cfg[d.id] || {};
+    var on = !!c.on;
+    var ps = d.params.map(function (p) {
+      var v = (c[p.k] !== undefined) ? c[p.k] : p.def;
+      return '<label style="font-weight:400">' + p.label +
+        '<input type="number" data-af="' + d.id + '" data-p="' + p.k + '" value="' + esc(v) +
+        '" min="' + p.min + '" max="' + p.max + '" step="' + p.step + '" style="width:78px"' + (on ? '' : ' disabled') + '></label>';
+    }).join('');
+    return '<div class="lp-af-row' + (on ? ' on' : '') + '">' +
+      '<label class="lp-af-head"><input type="checkbox" data-af-on="' + d.id + '"' + (on ? ' checked' : '') + '>' +
+      '<b>' + d.name + '</b></label>' +
+      '<div class="lp-af-params">' + ps + '</div>' +
+      '<div class="lp-af-hint">' + esc(d.hint) + '</div></div>';
+  }).join('');
+}
+// 收集成 [{ id, enabled, settings }] 交给主进程 composeAudioFilter
+function lpAudioFiltersPayload() {
+  var cfg = lpAudioFiltersCfg();
+  return LP_AF_DEFS.map(function (d) {
+    var c = cfg[d.id] || {};
+    var st = {};
+    d.params.forEach(function (p) {
+      var box = document.querySelector('[data-af="' + d.id + '"][data-p="' + p.k + '"]');
+      var v = box ? Number(box.value) : (c[p.k] !== undefined ? c[p.k] : p.def);
+      if (isNaN(v)) v = p.def;
+      st[p.k] = v;
+    });
+    return { id: d.id, enabled: !!c.on, settings: st };
+  }).filter(function (f) { return f.enabled; });
+}
+function lpAfApplyPreset(name) {
+  var p = LP_AF_PRESETS[name]; if (!p) return;
+  var cfg = lpAudioFiltersCfg();
+  Object.keys(p).forEach(function (id) {
+    var v = p[id];
+    cfg[id] = { on: !!v.on };
+    Object.keys(v).forEach(function (k) { if (k !== 'on') cfg[id][k] = v[k]; });
+  });
+  saveCfg(); lpRenderAudioFilters();
+  toast(name === 'voice' ? '已应用「人声直播」音频滤镜预设' : '已应用「音乐/现场」音频滤镜预设');
+}
+if ($('lpAudioFilters')) $('lpAudioFilters').addEventListener('change', function (e) {
+  var t = e.target, cfg = lpAudioFiltersCfg();
+  var idOn = t.getAttribute('data-af-on');
+  if (idOn) {
+    if (!cfg[idOn]) cfg[idOn] = { on: false };
+    cfg[idOn].on = t.checked;
+    saveCfg(); lpRenderAudioFilters(); return;
+  }
+  var id = t.getAttribute('data-af'), pk = t.getAttribute('data-p');
+  if (id && pk) {
+    if (!cfg[id]) cfg[id] = { on: true };
+    cfg[id][pk] = Number(t.value);
+    saveCfg();
+  }
+});
+if ($('lpAfPresetVoice')) $('lpAfPresetVoice').addEventListener('click', function () { lpAfApplyPreset('voice'); });
+if ($('lpAfPresetMusic')) $('lpAfPresetMusic').addEventListener('click', function () { lpAfApplyPreset('music'); });
+if ($('lpAfReset')) $('lpAfReset').addEventListener('click', function () {
+  state.cfg.lpAudioFilters = {}; saveCfg(); lpRenderAudioFilters(); toast('已关闭全部音频滤镜');
+});
+
 // ===================== v1.1.48：本机 PGM 输出（送 HDMI / 采集卡） =====================
 // 主窗的 PGM 是主窗里的元素，跨窗口传不了句柄 → 只传「源配置」，由输出窗自己起播。
 var lpOutFp = '';              // 上一次下发的指纹（JSON），相同则不重复下发
@@ -10603,6 +10753,13 @@ window.tcapi.onFfRestarted(function (d) {
     }
   }
   renderLpTasks();
+});
+// v1.1.49：自动重连进度提示（等待退避 / 放弃 / 致命错误，让「重连」这件事对用户可见）
+if (window.tcapi && window.tcapi.onFfReconnect) window.tcapi.onFfReconnect(function (d) {
+  if (!d) return;
+  if (d.kind === 'waiting') toast('推流中断，' + d.waitSec + ' 秒后第 ' + d.tries + '/' + d.max + ' 次自动重连…');
+  else if (d.kind === 'gaveup') toast('自动重连已连续失败 ' + d.max + ' 次，已停止（可手动重新开始推流）', true);
+  else if (d.kind === 'fatal') toast('推流因不可恢复错误中断（编码器 / 参数 / 文件 / 设备），未自动重连', true);
 });
 // 推流前自检：ffmpeg 引擎 → 媒体源试采 2 秒 → RTMP 连通性，每步透出真实报错
 $('lpCheckBtn').addEventListener('click', function () {
@@ -12568,6 +12725,8 @@ document.addEventListener('DOMContentLoaded', function () {
   extHistRecover();
   // v1.1.47：音频来源 UI 初始化（恢复模式选择、显隐联动；未选模式时用默认）
   try { lpAudioModeApply(); } catch (e) { /* */ }
+  // v1.1.49：音频滤镜 UI 初始化（恢复持久化的滤镜开关与参数）
+  try { lpRenderAudioFilters(); } catch (e) { /* */ }
   // v1.1.48：本机输出 UI 初始化（读取显示器列表；失败不影响主流程）
   try { lpOutRefresh(); } catch (e) { /* */ }
   if (state.cfg.secretId && state.cfg.secretKey && state.cfg.rememberPwd !== false) {
@@ -12584,7 +12743,7 @@ document.addEventListener('DOMContentLoaded', function () {
 // 版本号显示（登录页徽标 / 设置页），版本来自 package.json（electron app.getVersion）
 (function initVerBadge() {
   try {
-    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.48');
+    var ver = 'v' + ((window.tcapi && window.tcapi.appVersion) || '1.1.49');
     var lv = document.getElementById('loginVer'); if (lv) lv.textContent = ver;
     var sv = document.getElementById('stVer'); if (sv) sv.textContent = ver;
     var sv2 = document.getElementById('sideVerText'); if (sv2) sv2.textContent = ver;

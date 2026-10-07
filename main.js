@@ -16,7 +16,7 @@ const https = require('https');
 const http = require('http');
 const { spawn, execFileSync } = require('child_process');
 // r71：OBS 场景滤镜构造（缩放/翻转/旋转/来源叠加）抽到纯函数模块，便于离线单测
-const { composeVideoFilter, compileSceneGraph, compileAudioMix, composeAudioPlan, needsInput: ffNeedsInput } = require('./ffmpeg-args');
+const { composeVideoFilter, compileSceneGraph, compileAudioMix, composeAudioPlan, composeAudioFilter, needsInput: ffNeedsInput } = require('./ffmpeg-args');
 // v1.1.38：libobs 真引擎适配器（可选）——原生 addon 未编译/未打包时为 null，自动回退 ffmpeg
 const { createLibobsEngine } = require('./libobs-engine');
 
@@ -400,6 +400,7 @@ function ffSpawn(args, kind, label) {
   }
   const rec = { proc, cmd, kind, label, startedAt: new Date().toLocaleString('sv-SE'), logTail: [], _prog: {} };
   ffProcs.set(id, rec);
+  ffReapProcs();   // v1.1.49：起新任务时顺手回收僵尸记录，避免长直播进程表无限膨胀
   proc.stderr.on('data', (d) => {
     String(d).split(/\r?\n/).forEach((l) => { if (l.trim()) ffLogLine(id, l); });
   });
@@ -452,6 +453,7 @@ function ffSpawn(args, kind, label) {
     ffLogLine(id, code === 0 ? '[完成] 正常结束' : ('[退出] code=' + code));
     rec.exited = true;
     rec.code = code;
+    rec.exitAt = Date.now();   // v1.1.49：供 ffReapProcs 判断可回收
   });
   return { ok: true, id, cmd };
 }
@@ -468,34 +470,127 @@ function ffStop(id, sig) {
 
 // 自动重连（OBS 同款）：推流进程意外退出后自动重启，最多 5 次、间隔 5 秒。
 // mkArgs 闭包重建 ffmpeg 参数（设备源按最后一次成功的采集参数重启，避免重走协商试错）
-function attachAutoRestart(id, rec, mkArgs) {
-  const sup = { tries: 0 };
+// 重连退避阶梯（秒）：服务端抖动时若固定 5 秒猛打，容易被 CDN 判定为异常连接而拉黑
+const RECONN_BACKOFF = [2, 4, 8, 16, 30];
+// 稳定运行多久算「已恢复」→ 清零重连计数（毫秒）
+const RECONN_STABLE_MS = 60000;
+
+/**
+ * v1.1.49：自动重连（对齐 OBS 的 Auto-reconnect 策略）。
+ *
+ * 旧实现的三个真实缺陷：
+ *   1. 计数只增不减 → 一场 3 小时的直播里累计断 5 次（哪怕每次都成功恢复），
+ *      第 6 次起就彻底失去重连能力，而用户完全不知情。
+ *   2. 固定 5 秒间隔，无退避 → 服务端抖动时被连续猛打。
+ *   3. 不区分错误类型 → 「编码器不存在」这种致命错误也会重启 5 次空转。
+ */
+function attachAutoRestart(id, rec, mkArgs, opt) {
+  opt = opt || {};
+  const max = opt.max || RECONN_BACKOFF.length;
+  const sup = { tries: 0, timer: null, gaveUp: false };
+  const notify = (kind, curId, waitSec) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ff:reconnect', {
+        id: curId, label: rec.label, kind: kind,   // waiting | retried | gaveup | fatal
+        tries: sup.tries, max: max, waitSec: waitSec || 0
+      });
+    }
+  };
   const hook = (curId, curRec) => {
+    curRec.autoRestart = sup;
+    curRec.startedTs = Date.now();
     curRec.proc.once('close', () => {
-      if (curRec.stopReq) return;
-      if (sup.tries >= 5) { ffLogLine(curId, '[自动重连] 已连续重试 5 次仍未恢复，停止重连'); return; }
+      if (curRec.stopReq) return;                  // 用户主动停止 → 不重连
+      // 稳定运行超过阈值视为「已恢复」，计数清零（修复缺陷 1）
+      if (Date.now() - (curRec.startedTs || 0) > RECONN_STABLE_MS) sup.tries = 0;
+      if (sup.tries >= max) {
+        sup.gaveUp = true;
+        ffLogLine(curId, '[自动重连] 已连续重试 ' + max + ' 次仍未恢复，停止重连（可手动重新开始）');
+        notify('gaveup', curId);
+        return;
+      }
+      // 致命错误不重试（修复缺陷 3）
+      const log = (curRec.logTail || []).join('\n');
+      if (FF_FATAL_ERR.test(log)) {
+        sup.gaveUp = true;
+        ffLogLine(curId, '[自动重连] 检测到不可恢复错误（编码器 / 参数 / 文件 / 设备），不再重试');
+        notify('fatal', curId);
+        return;
+      }
       sup.tries++;
-      ffLogLine(curId, '[自动重连] 推流中断，5 秒后进行第 ' + sup.tries + '/5 次自动重连…');
-      setTimeout(() => {
-        if (curRec.stopReq) return;   // 等待期间用户已手动停止 → 取消重连
-        const r2 = ffSpawn(mkArgs(), 'push', curRec.label);
+      const wait = RECONN_BACKOFF[Math.min(sup.tries - 1, RECONN_BACKOFF.length - 1)] * 1000;
+      ffLogLine(curId, '[自动重连] 中断，' + (wait / 1000) + ' 秒后进行第 ' + sup.tries + '/' + max + ' 次重连…');
+      notify('waiting', curId, wait / 1000);
+      sup.timer = setTimeout(() => {
+        if (curRec.stopReq) return;                // 等待期间用户已手动停止 → 取消
+        ffReapProcs();                             // 顺手回收僵尸记录，避免长直播无限累积
+        const r2 = ffSpawn(mkArgs(), curRec.kind, curRec.label);
         if (!r2.ok) { ffLogLine(curId, '[自动重连] 重启失败：' + r2.error); return; }
         const rec2 = ffProcs.get(r2.id);
         rec2.stopReq = false;
-        ffLogLine(r2.id, '[自动重连] 已重新启动推流（原任务 ' + curId + '，新任务 ' + r2.id + '）');
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('ff:restarted', { oldId: curId, newId: r2.id, label: curRec.label });
+        // 老记录打上「已被接管」标记：界面不再显示，也不参与统计，但日志仍可查
+        curRec.replacedBy = r2.id;
+        ffLogLine(r2.id, '[自动重连] 已重新启动（原任务 ' + curId + '，第 ' + sup.tries + ' 次）');
+        // 只有推流走 ff:restarted（渲染层据此把新 id 接回对应路数的统计图表）；
+        // 录制续录不进推流状态机，避免串路。
+        if (mainWindow && !mainWindow.isDestroyed() && curRec.kind === 'push') {
+          mainWindow.webContents.send('ff:restarted', { oldId: curId, newId: r2.id, label: curRec.label, tries: sup.tries });
         }
+        notify('retried', r2.id);
         hook(r2.id, rec2);
-      }, 5000);
+      }, wait);
     });
   };
   hook(id, rec);
+  return sup;
+}
+
+/**
+ * v1.1.49：录制续录的分段文件名。
+ * 为什么要换文件名：ffmpeg 重连后若还写同一个输出路径，会把已录制的那一段整个覆盖掉，
+ * 等于「断流恢复」反而丢掉了断之前的全部内容。切成 _part01 / _part02 才能保住已录部分。
+ */
+function recordSegPath(out, n) {
+  if (!n) return out;
+  var m = String(out).match(/^(.*?)((?:\.[A-Za-z0-9]+)?)$/);
+  var base = m ? m[1] : String(out);
+  var ext = (m && m[2]) ? m[2] : '';
+  return base + '_part' + String(n).padStart(2, '0') + ext;
+}
+
+/**
+ * v1.1.49：回收 ffProcs 里的僵尸记录。
+ * 旧实现从不删除 —— 每次重连都往 Map 里新增一条，老记录标 running:false 却永久留着，
+ * 一场直播下来 ff:list 会堆出几十条僵尸任务，界面任务列表越来越长。
+ */
+function ffReapProcs() {
+  const now = Date.now();
+  const KEEP_MS = 5 * 60 * 1000;      // 已退出满 5 分钟的记录可回收
+  ffProcs.forEach((rec, id) => {
+    if (rec.replacedBy) { ffProcs.delete(id); return; }               // 已被新进程接管
+    if (rec.exited && rec.exitAt && now - rec.exitAt > KEEP_MS) ffProcs.delete(id);
+  });
+  // 兜底容量上限：超出时优先淘汰最老的已退出记录
+  const MAX = 50;
+  if (ffProcs.size > MAX) {
+    const dead = [];
+    ffProcs.forEach((rec, id) => { if (rec.exited) dead.push([id, rec.exitAt || 0]); });
+    dead.sort((a, b) => a[1] - b[1]);
+    let over = ffProcs.size - MAX;
+    for (const [id] of dead) { if (over <= 0) break; ffProcs.delete(id); over--; }
+  }
 }
 function ffList() {
   const out = [];
   ffProcs.forEach((rec, id) => {
-    out.push({ id, kind: rec.kind, label: rec.label, cmd: rec.cmd, startedAt: rec.startedAt, running: !rec.exited, logTail: rec.logTail.slice(-6) });
+    // v1.1.49：已被新进程接管的老记录不进列表（否则每次重连都多一条僵尸任务）
+    if (rec.replacedBy) return;
+    out.push({
+      id, kind: rec.kind, label: rec.label, cmd: rec.cmd, startedAt: rec.startedAt,
+      running: !rec.exited, logTail: rec.logTail.slice(-6),
+      // 重连状态：界面可据此显示「重连中 x/5」
+      reconnect: rec.autoRestart ? { tries: rec.autoRestart.tries, gaveUp: !!rec.autoRestart.gaveUp } : null
+    });
   });
   return { ok: true, list: out };
 }
@@ -615,9 +710,15 @@ function writeConcatList(files) {
 //   从错误输出解析设备支持模式（avfoundation 格式「1920x1080@[60.000000 60.000000]fps」），
 //   按最接近请求帧率的模式显式重试；解析不到模式时按常见帧率梯度（30/25/60/15）重试，最多 4 次。
 const FF_CAPTURE_ERR = /avfoundation|dshow|selected framerate|supported modes|could not find (video|audio)|not supported by the device|input\/output error/i;
-// 瞬时 RTMP/网络错误：实测对端偶发握手 Input/output error（重试即成功）、连接重置等。
-// 这类错误此前直接放弃（只在采集错误时重试），用户视角 = 点开始推流几秒后任务静默消失
-const FF_RTMP_ERR = /input\/output error|connection (refused|reset|aborted|timed out)|unable to (connect|open)|rtmp|handshake|timed? ?out/i;
+// 瞬时网络/传输错误：实测对端偶发握手 Input/output error（重试即成功）、连接重置等。
+// 这类错误此前直接放弃（只在采集错误时重试），用户视角 = 点开始推流几秒后任务静默消失。
+//
+// v1.1.49 修正：旧正则含裸 `rtmp`。ffmpeg 启动会回显整条命令行（里面必然有 rtmp:// 地址），
+// 于是「日志里出现推流地址」就被判成网络错误 —— 无论真正原因是什么都触发重试，
+// 连「编码器不存在」这种致命错误也会被无意义地重启。改为只匹配明确的传输故障措辞。
+const FF_RTMP_ERR = /input\/output error|i\/o error|connection (refused|reset|aborted|timed out)|unable to (connect|open)|failed to (connect|open)|handshake failed|network is unreachable|no route to host|server closed|broken pipe|timed? ?out|end of file/i;
+// 不可恢复错误：重连一百次也是同样的错（编码器/参数/文件/设备问题），直接放弃，避免无限空转
+const FF_FATAL_ERR = /unknown encoder|encoder .* not found|invalid argument|no such file|not found|permission denied|unrecognized option|option .* not found|incorrect codec parameters|error opening filters|cannot find|invalid data found when processing input/i;
 function parseDevModes(log) {
   const modes = [];
   const re = /(\d{2,5})x(\d{2,5})@\[?([\d.]+)[ ,]+([\d.]+)\]?/g;
@@ -943,6 +1044,21 @@ function buildPushArgs(o) {
       else if (hasAudio) { audioComplex = null; audioMap = '0:a?'; audioHas = true; }
       else { audioHas = false; }
     }
+    // v1.1.49：音频滤镜（降噪/增益/噪声门/压缩/限幅）——统一挂在「最终输出音轨」上，
+    // 这样无论音频来自画面、独立声卡还是多路混音，处理链都只跑一次且顺序固定。
+    //   有音频图（[aout]）→ 在图尾接一段 [afin]<chain>[aout]；
+    //   无音频图（单路 -map 0:a? 直通）→ 用 -af，避免为了挂滤镜强行构造 filter_complex。
+    var audioAf = '';
+    if (audioHas) {
+      const afRes = composeAudioFilter(o.audioFilters);
+      if (afRes.chain) {
+        if (audioComplex) {
+          audioComplex = audioComplex.replace(/\[aout\]$/, '[afin]') + ';[afin]' + afRes.chain + '[aout]';
+        } else {
+          audioAf = afRes.chain;
+        }
+      }
+    }
     if (vfRes.complex) {
       // 多输入叠加图：把音频图并入同一 filter_complex（视频图末尾 [vout] + 音频图末尾 [aout]）
       args.push('-filter_complex', vfRes.complex + (audioComplex ? (';' + audioComplex) : ''));
@@ -959,6 +1075,7 @@ function buildPushArgs(o) {
         args.push('-vf', vfRes.vf);
       }
     }
+    if (audioAf) args.push('-af', audioAf);
     // 音频编码：有音频（主画面/混音/独立音源）时编码 AAC；否则禁音轨
     if (audioHas) args.push('-c:a', 'aac', '-b:a', o.audioBr || '128k', '-ar', '44100');
     else args.push('-an');
@@ -1110,16 +1227,37 @@ ipcMain.handle('ff:run', async (_e, args) => {
     return r;
   }
   if (args.kind === 'record') {
+    // v1.1.49：录制也支持断流自动续录（直播录制断一次就整段丢失，代价太大）。
+    // 续录必须切到新文件名，否则 ffmpeg 会覆盖掉断流前已录好的那一段。
+    const attachRecordReconn = (r, mk) => {
+      if (!r.ok || !args.autoRestart) return r;
+      const rec = ffProcs.get(r.id);
+      if (!rec) return r;
+      let seg = 0;
+      attachAutoRestart(r.id, rec, () => {
+        seg++;
+        const out2 = recordSegPath(args.out, seg);
+        ffLogLine(r.id, '[自动续录] 输出切换到 ' + out2 + '（已录部分保留在上一分段）');
+        return mk(out2);
+      }, { max: 3 });
+      return r;
+    };
     // 设备源录制（外接采集卡 / 摄像头）与拉流 URL 录制两种来源
     if (args.source && args.source.type === 'device') {
       if (!args.source.deviceVideo) return { ok: false, error: '请选择视频采集设备' };
-      return await ffSpawnDevice(
+      const res = await ffSpawnDevice(
         (s) => buildRecordArgs(Object.assign({}, args, { source: s })),
         'record', args.label || args.out, args.source, 30
       );
+      return attachRecordReconn(res, (out2) => buildRecordArgs(Object.assign({}, args, {
+        source: Object.assign({}, args.source, res.lastCap || {}), out: out2
+      })));
     }
     if (!/^(rtmp|https?|artc|srt):\/\//i.test(args.url || '')) return { ok: false, error: '录制地址必须是 rtmp/http(s)/srt 链接' };
-    return ffSpawn(buildRecordArgs(args), 'record', args.label || args.out);
+    return attachRecordReconn(
+      ffSpawn(buildRecordArgs(args), 'record', args.label || args.out),
+      (out2) => buildRecordArgs(Object.assign({}, args, { out: out2 }))
+    );
   }
   return { ok: false, error: '未知任务类型' };
 });

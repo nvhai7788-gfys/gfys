@@ -194,13 +194,7 @@ function compileSceneGraph(o, sources, inputMap) {
   if (!overlays.length) {
     var vfList = base.slice();
     texts.forEach(function (s) {
-      var st = s.settings || {};
-      var dt = {
-        text: st.text != null ? st.text : (s.text || ''),
-        fontsize: st.font_size || s.fontsize || 32,
-        color: normColor(st.color || s.color || 'white', 'white'),
-        box: st.box, boxcolor: st.boxcolor
-      };
+      var dt = textToDrawtext(s);
       var xy = overlayXY(s);
       dt.x = xy.x; dt.y = xy.y;
       vfList.push(buildDrawtext(dt));
@@ -243,13 +237,7 @@ function compileSceneGraph(o, sources, inputMap) {
   // 注意：OBS 形态来源的文本 / 字号 / 颜色存放在 settings 下，需先映射成 buildDrawtext 认识的字段
   texts.forEach(function (s) {
     var tag = 'tx' + (n++);
-    var st = s.settings || {};
-    var dt = {
-      text: st.text != null ? st.text : (s.text || ''),
-      fontsize: st.font_size || s.fontsize || 32,
-      color: normColor(st.color || s.color || 'white', 'white'),
-      box: st.box, boxcolor: st.boxcolor
-    };
+    var dt = textToDrawtext(s);
     var xy = overlayXY(s);
     dt.x = xy.x; dt.y = xy.y;
     lines.push('[' + last + ']' + buildDrawtext(dt) + '[' + tag + ']');
@@ -308,6 +296,103 @@ function compileAudioMix(audioInputs, o) {
   return { complex: lines.join(';'), map: '[aout]' };
 }
 
+// ---------------------------------------------------------------------------
+// v1.1.49：音频滤镜（OBS 同款音频处理三件套落地到 ffmpeg）
+//
+// ⚠️ 最容易踩的坑：ffmpeg 的 acompressor / alimiter / agate 的
+//    threshold / limit / range / makeup 全部是「线性幅度」而不是 dB。
+//    可反推验证——acompressor 的 threshold 文档默认值是 0.125，
+//    而 10^(-18/20) = 0.1259，正好是 -18 dB，说明换算式就是 10^(dB/20)。
+//    直接把 -18 传进去会被当成 -18 倍线性幅度而静默失效（不报错、但没效果）。
+// ---------------------------------------------------------------------------
+function clampNum(v, lo, hi, dft) {
+  var n = Number(v);
+  if (v === undefined || v === null || v === '' || isNaN(n)) n = dft;
+  if (n < lo) n = lo; if (n > hi) n = hi;
+  return n;
+}
+// dB → 线性幅度
+function dbToLin(db) { return Math.pow(10, (Number(db) || 0) / 20); }
+function r2(v) { return Math.round(Number(v) * 100) / 100; }
+function r4(v) { return Math.round(Number(v) * 10000) / 10000; }
+function r6(v) { return Math.round(Number(v) * 1000000) / 1000000; }
+
+var AUDIO_FILTERS = {
+  'noise_suppress_filter': {
+    label: '噪声抑制', order: 1,
+    build: function (st) {
+      // afftdn：FFT 降噪。nf = 噪声基底 dB（-80..-20，越小降噪越狠）
+      return 'afftdn=nf=' + r2(clampNum(st.amount, -80, -20, -20));
+    }
+  },
+  'gain_filter': {
+    label: '增益', order: 2,
+    build: function (st) {
+      var db = clampNum(st.db, -30, 30, 0);
+      return 'volume=' + r2(db) + 'dB';
+    }
+  },
+  'noise_gate_filter': {
+    label: '噪声门', order: 3,
+    build: function (st) {
+      var th = clampNum(st.threshold, -90, 0, -40);
+      var rg = clampNum(st.range, -90, 0, -60);
+      return 'agate=threshold=' + r6(dbToLin(th)) + ':range=' + r6(dbToLin(rg)) +
+        ':attack=' + r2(clampNum(st.attack, 0.01, 9000, 20)) +
+        ':release=' + r2(clampNum(st.release, 0.01, 9000, 250));
+    }
+  },
+  'compressor_filter': {
+    label: '压缩器', order: 4,
+    build: function (st) {
+      var th = clampNum(st.threshold, -60, 0, -18);
+      return 'acompressor=threshold=' + r4(dbToLin(th)) +
+        ':ratio=' + r2(clampNum(st.ratio, 1, 20, 4)) +
+        ':attack=' + r2(clampNum(st.attack, 0.01, 2000, 20)) +
+        ':release=' + r2(clampNum(st.release, 0.01, 9000, 250)) +
+        ':makeup=' + r4(dbToLin(clampNum(st.makeup, 0, 36, 0)));
+    }
+  },
+  'limiter_filter': {
+    label: '限幅器', order: 5,
+    build: function (st) {
+      // alimiter 的 limit 上限是 1.0（= 0 dB），超过会被 ffmpeg 拒
+      return 'alimiter=limit=' + r4(dbToLin(clampNum(st.threshold, -24, 0, -3))) +
+        ':release=' + r2(clampNum(st.release, 0.1, 9000, 50));
+    }
+  }
+};
+
+/**
+ * 把音频滤镜数组编译成可直接拼进 ffmpeg 滤镜链的片段。
+ * 入参：[{ id, enabled, settings }]，id 见 AUDIO_FILTERS
+ * 返回：{ chain, applied, skipped }
+ *   chain   —— 如 'afftdn=nf=-20,volume=6dB'；无有效滤镜时为 ''
+ *   applied —— 实际生效的滤镜 id（按 OBS 处理顺序：降噪→增益→门→压缩→限幅）
+ */
+function composeAudioFilter(filters) {
+  var list = (Array.isArray(filters) ? filters : []).filter(function (f) {
+    return f && f.id && f.enabled !== false;
+  });
+  // 按 OBS 的信号链顺序排序（噪声抑制 → 增益 → 噪声门 → 压缩 → 限幅）
+  list.sort(function (a, b) {
+    var oa = (AUDIO_FILTERS[a.id] && AUDIO_FILTERS[a.id].order) || 99;
+    var ob = (AUDIO_FILTERS[b.id] && AUDIO_FILTERS[b.id].order) || 99;
+    return oa - ob;
+  });
+  var parts = [], applied = [], skipped = [];
+  list.forEach(function (f) {
+    var def = AUDIO_FILTERS[f.id];
+    if (!def) { skipped.push({ id: f.id, reason: '未知音频滤镜类型' }); return; }
+    var seg;
+    try { seg = def.build(f.settings || {}); }
+    catch (e) { skipped.push({ id: f.id, reason: '参数无效：' + e.message }); return; }
+    if (!seg) { skipped.push({ id: f.id, reason: '无需处理' }); return; }
+    parts.push(seg); applied.push(f.id);
+  });
+  return { chain: parts.join(','), applied: applied, skipped: skipped };
+}
+
 // 基础画布链（缩放/翻转/旋转/竖屏转置），与 composeVideoFilter 头部逻辑同源
 function baseCanvasChain(o) {
   var vf = [];
@@ -335,12 +420,61 @@ function baseCanvasChain(o) {
 
 // 构造 drawtext 视频滤镜（水印 / 题词）。坐标支持 ffmpeg 表达式字符串。
 // fontFile（可选）：显式字体文件路径；不传时不加 fontfile=（ffmpeg 用内置/系统默认字体）
+/**
+ * v1.1.49：OBS 形态文字来源 → buildDrawtext 入参的统一映射。
+ * 文本 / 字号 / 颜色存放在 settings 下（OBS 原生形态），旧形态则直接挂在来源上，
+ * 两条路径都走这里，避免「-vf 路径支持跑马灯、filter_complex 路径不支持」的割裂。
+ */
+function textToDrawtext(s) {
+  var st = s.settings || {};
+  var dt = {
+    text: st.text != null ? st.text : (s.text || ''),
+    fontsize: st.font_size || s.fontsize || 32,
+    color: normColor(st.color || s.color || 'white', 'white'),
+    box: st.box, boxcolor: st.boxcolor
+  };
+  // 跑马灯：优先读 settings（OBS 形态），回退到来源直挂字段
+  var sc = (st.scroll != null) ? st.scroll : s.scroll;
+  if (sc) {
+    dt.scroll = true;
+    dt.scrollSpeed = (st.scroll_speed != null) ? st.scroll_speed : s.scrollSpeed;
+    dt.scrollDir = (st.scroll_dir != null) ? st.scroll_dir : s.scrollDir;
+  }
+  return dt;
+}
+
+/**
+ * v1.1.49：跑马灯横向滚动的 x 表达式（纯函数，可单测）。
+ *
+ * 为什么用 % 而不是 mod(a,b)：filtergraph 里逗号是 option 分隔符，
+ * mod() 的双参数逗号必须转义成 `\,`，在不同 ffmpeg 版本上转义行为不一致；
+ * ffmpeg 的 eval 表达式原生支持 % 作为取模运算符，表达式里写 % 完全不需要转义。
+ *
+ * 循环推导（w=画布宽，tw=文字宽，v=速度 px/s）：
+ *   从右往左：x = w - ((t*v) % (w+tw))
+ *     t=0          → x = w      （文字完全在画布右缘之外，即将进入）
+ *     t*v = w+tw   → x = -tw    （文字完全移出左缘，下一周期无缝接回）
+ *   从左往右：x = ((t*v) % (w+tw)) - tw
+ *     t=0          → x = -tw    （完全在左缘之外）
+ *     t*v = w+tw   → x = w      （完全移出右缘，下一周期接回）
+ * 两者周期都是 (w+tw)/v 秒，天然无缝循环。
+ */
+function scrollXExpr(speed, dir) {
+  var v = Number(speed) || 60;
+  if (v <= 0) v = 60;
+  return (dir === 'right')
+    ? '((t*' + v + ')%(w+text_w))-text_w'
+    : 'w-((t*' + v + ')%(w+text_w))';
+}
+
 function buildDrawtext(s, fontFile) {
   var t = String(s.text == null ? '' : s.text).replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
   var fs = s.fontsize || 32;
   var col = s.color || 'white';
   var x = (s.x != null && s.x !== '') ? s.x : '(w-text_w)/2';
   var y = (s.y != null && s.y !== '') ? s.y : '(h-text_h)-20';
+  // v1.1.49：跑马灯滚动字幕 —— 用时间表达式驱动 x，覆盖静态坐标
+  if (s.scroll) x = scrollXExpr(s.scrollSpeed, s.scrollDir);
   var p = "text='" + t + "':fontsize=" + fs + ':fontcolor=' + col + ':x=' + x + ':y=' + y;
   if (fontFile) {
     // Windows 路径在 filtergraph 里需转义反斜杠与冒号
@@ -471,7 +605,10 @@ module.exports = {
   compileSceneGraph: compileSceneGraph,
   compileAudioMix: compileAudioMix,
   composeAudioPlan: composeAudioPlan,
+  composeAudioFilter: composeAudioFilter,
+  AUDIO_FILTERS: AUDIO_FILTERS,
   buildDrawtext: buildDrawtext,
+  scrollXExpr: scrollXExpr,
   normColor: normColor,
   needsInput: needsInput,
   isSupported: isSupported,
